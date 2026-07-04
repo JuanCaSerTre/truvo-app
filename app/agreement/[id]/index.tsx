@@ -32,7 +32,10 @@ export default function AgreementDetailsScreen() {
   const agreementPayments = payments.filter((payment) => payment.agreementId === agreement.id);
   const timeline = timelineEvents.filter((event) => event.agreementId === agreement.id);
   const isLender = agreement.lenderId === currentUser.id;
-  const isBorrower = agreement.borrowerId === currentUser.id || agreement.borrowerEmail?.toLowerCase() === currentUser.email?.toLowerCase();
+  const isBorrower =
+    agreement.borrowerId === currentUser.id ||
+    agreement.borrowerEmail?.toLowerCase() === currentUser.email?.toLowerCase() ||
+    agreement.borrowerPhone === currentUser.phone;
   const canRespondToPending = agreement.status === 'pending' && isBorrower && !isLender;
   const canManagePending = agreement.status === 'pending' && isLender;
   const accept = () => updateAgreementStatus(agreement.id, 'active');
@@ -91,7 +94,7 @@ export default function AgreementDetailsScreen() {
         <Text style={styles.cardText}>Due date {formatDate(agreement.dueDate)}</Text>
         {agreement.borrowerEmail ? <Text style={styles.cardText}>Borrower {agreement.borrowerEmail}</Text> : null}
       </View>
-      {agreement.status === 'active' ? <PrimaryButton label="Register payment" onPress={() => router.push(`/register-payment/${agreement.id}`)} /> : null}
+      {agreement.status === 'active' && isBorrower ? <PrimaryButton label="Register payment" onPress={() => router.push(`/register-payment/${agreement.id}`)} /> : null}
       {canEditAgreement(agreement) && isLender ? <PrimaryButton label="Edit agreement" variant="outline" onPress={() => router.push('/create')} /> : null}
       {canManagePending ? <PrimaryButton label="Cancel pending agreement" variant="danger" onPress={() => updateAgreementStatus(agreement.id, 'cancelled')} /> : null}
       {canManagePending ? <PrimaryButton label="Preview borrower request" variant="outline" onPress={() => router.push(`/agreement-request/${agreement.id}`)} /> : null}

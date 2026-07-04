@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Payment } from '@/types/models';
 import { colors, radii, spacing, typography } from '@/constants/theme';
 import { formatDate, formatMoney } from '@/utils/money';
@@ -7,16 +7,31 @@ import { StatusBadge } from './StatusBadge';
 
 interface Props {
   payment: Payment;
+  onPress?: () => void;
 }
 
-export function PaymentCard({ payment }: Props) {
-  return (
-    <View style={styles.card}>
+export function PaymentCard({ payment, onPress }: Props) {
+  const content = (
+    <>
       <View>
         <Text style={styles.amount}>{formatMoney(payment.amount)}</Text>
         <Text style={styles.meta}>{formatDate(payment.paymentDate)} · {payment.method.replace('_', ' ')}</Text>
       </View>
       <StatusBadge status={payment.status} />
+    </>
+  );
+
+  if (onPress) {
+    return (
+      <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.card, pressed && styles.pressed]}>
+        {content}
+      </Pressable>
+    );
+  }
+
+  return (
+    <View style={styles.card}>
+      {content}
     </View>
   );
 }
@@ -32,6 +47,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     gap: spacing.md,
+  },
+  pressed: {
+    opacity: 0.76,
   },
   amount: {
     color: colors.text,

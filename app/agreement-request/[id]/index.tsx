@@ -11,7 +11,7 @@ import { formatDate, formatMoney } from '@/utils/money';
 
 export default function AgreementRequestScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { agreements, currentUser, updateAgreementStatus } = useTruvoStore();
+  const { agreements, currentUser, updateAgreementStatus, users } = useTruvoStore();
   const agreement = agreements.find((item) => item.id === id);
 
   if (!agreement) {
@@ -31,7 +31,11 @@ export default function AgreementRequestScreen() {
     updateAgreementStatus(agreement.id, 'rejected');
     router.replace('/(tabs)/agreements');
   };
-  const canRespond = agreement.borrowerId === currentUser.id || agreement.borrowerEmail?.toLowerCase() === currentUser.email?.toLowerCase();
+  const canRespond =
+    agreement.borrowerId === currentUser.id ||
+    agreement.borrowerEmail?.toLowerCase() === currentUser.email?.toLowerCase() ||
+    agreement.borrowerPhone === currentUser.phone;
+  const lender = users.find((user) => user.id === agreement.lenderId);
 
   return (
     <ScreenContainer>
@@ -41,7 +45,7 @@ export default function AgreementRequestScreen() {
       </Text>
       <View style={styles.card}>
         <Text style={styles.label}>Lender</Text>
-        <Text style={styles.value}>Alex Morgan</Text>
+        <Text style={styles.value}>{lender?.name || 'Lender'}</Text>
         <Text style={styles.label}>Payment schedule</Text>
         <Text style={styles.value}>{agreement.numberOfPayments} {agreement.paymentFrequency} payment{agreement.numberOfPayments > 1 ? 's' : ''}</Text>
         <Text style={styles.label}>Due date</Text>

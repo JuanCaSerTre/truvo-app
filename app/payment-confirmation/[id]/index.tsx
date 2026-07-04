@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Alert, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { EmptyState } from '@/components/EmptyState';
 import { PrimaryButton } from '@/components/PrimaryButton';
@@ -11,7 +11,7 @@ import { formatDate, formatMoney } from '@/utils/money';
 
 export default function PaymentConfirmationScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { payments, agreements, confirmPayment, rejectPayment } = useTruvoStore();
+  const { payments, agreements, currentUser, confirmPayment, rejectPayment } = useTruvoStore();
   const payment = payments.find((item) => item.id === id);
   const agreement = payment ? agreements.find((item) => item.id === payment.agreementId) : undefined;
 
@@ -23,14 +23,24 @@ export default function PaymentConfirmationScreen() {
     );
   }
 
+  const canConfirmPayment = payment.receiverId === currentUser.id;
+
   const confirm = () => {
-    confirmPayment(payment.id);
-    router.replace(`/agreement/${agreement.id}`);
+    try {
+      confirmPayment(payment.id);
+      router.replace(`/agreement/${agreement.id}`);
+    } catch (error) {
+      Alert.alert('Could not confirm payment', error instanceof Error ? error.message : 'Please try again.');
+    }
   };
 
   const reject = () => {
-    rejectPayment(payment.id);
-    router.replace(`/agreement/${agreement.id}`);
+    try {
+      rejectPayment(payment.id);
+      router.replace(`/agreement/${agreement.id}`);
+    } catch (error) {
+      Alert.alert('Could not reject payment', error instanceof Error ? error.message : 'Please try again.');
+    }
   };
 
   return (
@@ -45,9 +55,13 @@ export default function PaymentConfirmationScreen() {
         <Text style={styles.value}>{agreement.borrowerName || agreement.borrowerPhone}</Text>
         <StatusBadge status={payment.status} />
       </View>
-      <Text style={styles.note}>Confirmed payments reduce the remaining balance. Pending payments do not.</Text>
-      <PrimaryButton label="Confirm payment" onPress={confirm} disabled={payment.status !== 'pending_confirmation'} />
-      <PrimaryButton label="Reject payment" variant="outline" onPress={reject} disabled={payment.status !== 'pending_confirmation'} />
+      <Text style={styles.note}>
+        {canConfirmPayment
+          ? 'Confirmed payments reduce the remaining balance. Pending payments do not.'
+          : 'Only the payment receiver can confirm or reject this payment.'}
+      </Text>
+      <PrimaryButton label="Confirm payment" onPress={confirm} disabled={payment.status !== 'pending_confirmation' || !canConfirmPayment} />
+      <PrimaryButton label="Reject payment" variant="outline" onPress={reject} disabled={payment.status !== 'pending_confirmation' || !canConfirmPayment} />
     </ScreenContainer>
   );
 }

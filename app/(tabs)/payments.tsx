@@ -8,8 +8,15 @@ import { colors, typography } from '@/constants/theme';
 import { useTruvoStore } from '@/hooks/useTruvoStore';
 
 export default function PaymentsScreen() {
-  const { agreements, payments } = useTruvoStore();
-  const pending = payments.filter((payment) => payment.status === 'pending_confirmation');
+  const { agreements, currentUser, payments } = useTruvoStore();
+  const pending = payments.filter((payment) => payment.status === 'pending_confirmation' && payment.receiverId === currentUser.id);
+  const payableAgreements = agreements.filter(
+    (agreement) =>
+      agreement.status === 'active' &&
+      (agreement.borrowerId === currentUser.id ||
+        agreement.borrowerEmail?.toLowerCase() === currentUser.email?.toLowerCase() ||
+        agreement.borrowerPhone === currentUser.phone),
+  );
 
   return (
     <ScreenContainer>
@@ -23,11 +30,10 @@ export default function PaymentsScreen() {
         />
       ) : (
         pending.map((payment) => (
-          <PaymentCard key={payment.id} payment={payment} />
+          <PaymentCard key={payment.id} payment={payment} onPress={() => router.push(`/payment-confirmation/${payment.id}`)} />
         ))
       )}
-      {agreements
-        .filter((agreement) => agreement.status === 'active')
+      {payableAgreements
         .map((agreement) => (
           <EmptyState
             key={agreement.id}

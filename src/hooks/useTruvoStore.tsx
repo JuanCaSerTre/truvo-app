@@ -94,9 +94,16 @@ export function TruvoProvider({ children }: PropsWithChildren) {
 
   const addNotification = (notification: Omit<Notification, 'id' | 'createdAt' | 'read'>) => {
     const nextNotification: Notification = { ...notification, id: id(), createdAt: now(), read: false };
-    setNotificationState((items) => [nextNotification, ...items]);
+    if (nextNotification.userId === currentUser.id) {
+      setNotificationState((items) => [nextNotification, ...items]);
+    }
     void agreementService.createNotification(nextNotification).catch((error) => console.warn('Unable to persist notification', error));
   };
+
+  const isCurrentUserBorrower = (agreement: Agreement) =>
+    agreement.borrowerId === currentUser.id ||
+    agreement.borrowerEmail?.toLowerCase() === currentUser.email?.toLowerCase() ||
+    agreement.borrowerPhone === currentUser.phone;
 
   const createAgreement = async (input: AgreementInput) => {
     const interestAmount = Math.max(input.totalRepaymentAmount - input.principalAmount, 0);
@@ -214,10 +221,12 @@ export function TruvoProvider({ children }: PropsWithChildren) {
   };
 
   const registerPayment = async (input: PaymentInput) => {
-    await agreementService.registerPayment(input);
     const agreement = agreementState.find((item) => item.id === input.agreementId);
-    const payerId = agreement?.borrowerId || currentUser.id;
-    const receiverId = agreement?.lenderId || currentUser.id;
+    if (!agreement) throw new Error('Agreement not found.');
+    if (agreement.status !== 'active') throw new Error('Only active agreements can receive payments.');
+    if (!isCurrentUserBorrower(agreement)) throw new Error('Only the borrower can register a payment.');
+
+    await agreementService.registerPayment(input);
     const payment: Payment = {
       id: id(),
       agreementId: input.agreementId,
@@ -226,8 +235,8 @@ export function TruvoProvider({ children }: PropsWithChildren) {
       method: input.method,
       notes: input.notes,
       status: 'pending_confirmation',
-      payerId,
-      receiverId,
+      payerId: currentUser.id,
+      receiverId: agreement.lenderId,
       createdAt: now(),
     };
     await agreementService.createPayment(payment);
@@ -240,10 +249,10 @@ export function TruvoProvider({ children }: PropsWithChildren) {
       description: `${formatMoney(input.amount)} is pending confirmation.`,
     });
     addNotification({
-      userId: currentUser.id,
+      userId: agreement.lenderId,
       type: 'payment_registered',
-      title: 'Payment awaiting confirmation',
-      body: `${formatMoney(input.amount)} will apply to the balance after confirmation.`,
+      title: 'Payment waiting for confirmation',
+      body: `${currentUser.name} registered a ${formatMoney(input.amount)} payment for your confirmation.`,
       relatedAgreementId: input.agreementId,
       relatedPaymentId: payment.id,
     });
@@ -251,6 +260,12 @@ export function TruvoProvider({ children }: PropsWithChildren) {
   };
 
   const confirmPayment = (paymentId: string) => {
+    const payment = paymentState.find((item) => item.id === paymentId);
+    if (!payment) return;
+    if (payment.receiverId !== currentUser.id) {
+      throw new Error('Only the payment receiver can confirm this payment.');
+    }
+
     let updatedPayments: Payment[] = [];
     setPaymentState((items) => {
       updatedPayments = items.map((payment) =>
@@ -259,8 +274,6 @@ export function TruvoProvider({ children }: PropsWithChildren) {
       return updatedPayments;
     });
 
-    const payment = paymentState.find((item) => item.id === paymentId);
-    if (!payment) return;
     void agreementService.updatePayment({ ...payment, status: 'confirmed', confirmedAt: now() });
     addTimeline({
       agreementId: payment.agreementId,
@@ -270,10 +283,10 @@ export function TruvoProvider({ children }: PropsWithChildren) {
       description: `${formatMoney(payment.amount)} was applied to the balance.`,
     });
     addNotification({
-      userId: currentUser.id,
+      userId: payment.payerId,
       type: 'payment_confirmed',
       title: 'Payment confirmed',
-      body: `${formatMoney(payment.amount)} has reduced the remaining balance.`,
+      body: `${currentUser.name} confirmed your ${formatMoney(payment.amount)} payment.`,
       relatedAgreementId: payment.agreementId,
       relatedPaymentId: payment.id,
     });
@@ -285,11 +298,15 @@ export function TruvoProvider({ children }: PropsWithChildren) {
   };
 
   const rejectPayment = (paymentId: string) => {
+    const payment = paymentState.find((item) => item.id === paymentId);
+    if (!payment) return;
+    if (payment.receiverId !== currentUser.id) {
+      throw new Error('Only the payment receiver can reject this payment.');
+    }
+
     setPaymentState((items) =>
       items.map((payment) => (payment.id === paymentId ? { ...payment, status: 'rejected', rejectedAt: now() } : payment)),
     );
-    const payment = paymentState.find((item) => item.id === paymentId);
-    if (!payment) return;
     void agreementService.updatePayment({ ...payment, status: 'rejected', rejectedAt: now() });
     addTimeline({
       agreementId: payment.agreementId,
@@ -299,10 +316,10 @@ export function TruvoProvider({ children }: PropsWithChildren) {
       description: `${formatMoney(payment.amount)} was not applied to the balance.`,
     });
     addNotification({
-      userId: currentUser.id,
+      userId: payment.payerId,
       type: 'payment_rejected',
       title: 'Payment rejected',
-      body: 'The payment remains outside the confirmed balance.',
+      body: `${currentUser.name} rejected your ${formatMoney(payment.amount)} payment.`,
       relatedAgreementId: payment.agreementId,
       relatedPaymentId: payment.id,
     });

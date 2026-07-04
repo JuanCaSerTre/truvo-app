@@ -13,14 +13,27 @@ import { formatMoney } from '@/utils/money';
 
 export default function HomeDashboard() {
   const { agreements, currentUser, payments, notifications } = useTruvoStore();
-  const active = agreements.filter((agreement) => agreement.status === 'active');
+  const userNotifications = notifications.filter((notification) => notification.userId === currentUser.id);
+  const active = agreements.filter(
+    (agreement) =>
+      agreement.status === 'active' &&
+      (agreement.lenderId === currentUser.id ||
+        agreement.borrowerId === currentUser.id ||
+        agreement.borrowerEmail?.toLowerCase() === currentUser.email?.toLowerCase() ||
+        agreement.borrowerPhone === currentUser.phone),
+  );
   const toReceive = active
     .filter((agreement) => agreement.lenderId === currentUser.id)
     .reduce((sum, agreement) => sum + getRemainingBalance(agreement, payments), 0);
   const toPay = active
-    .filter((agreement) => agreement.borrowerId === currentUser.id)
+    .filter(
+      (agreement) =>
+        agreement.borrowerId === currentUser.id ||
+        agreement.borrowerEmail?.toLowerCase() === currentUser.email?.toLowerCase() ||
+        agreement.borrowerPhone === currentUser.phone,
+    )
     .reduce((sum, agreement) => sum + getRemainingBalance(agreement, payments), 0);
-  const pendingConfirmations = payments.filter((payment) => payment.status === 'pending_confirmation').length;
+  const pendingConfirmations = payments.filter((payment) => payment.status === 'pending_confirmation' && payment.receiverId === currentUser.id).length;
 
   return (
     <ScreenContainer>
@@ -31,7 +44,7 @@ export default function HomeDashboard() {
         </View>
         <Pressable style={styles.iconButton} onPress={() => router.push('/notifications')}>
           <Ionicons name="notifications-outline" size={24} color={colors.primary} />
-          {notifications.some((item) => !item.read) ? <View style={styles.dot} /> : null}
+          {userNotifications.some((item) => !item.read) ? <View style={styles.dot} /> : null}
         </Pressable>
       </View>
 

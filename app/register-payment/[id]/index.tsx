@@ -15,7 +15,7 @@ const methods: PaymentMethod[] = ['cash', 'bank_transfer', 'other'];
 
 export default function RegisterPaymentScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { agreements, payments, registerPayment } = useTruvoStore();
+  const { agreements, currentUser, payments, registerPayment } = useTruvoStore();
   const agreement = agreements.find((item) => item.id === id);
   const [amount, setAmount] = useState('');
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().slice(0, 10));
@@ -32,6 +32,10 @@ export default function RegisterPaymentScreen() {
   }
 
   const remaining = getRemainingBalance(agreement, payments);
+  const canRegisterPayment =
+    agreement.borrowerId === currentUser.id ||
+    agreement.borrowerEmail?.toLowerCase() === currentUser.email?.toLowerCase() ||
+    agreement.borrowerPhone === currentUser.phone;
 
   const submit = async () => {
     const parsedAmount = toNumber(amount);
@@ -43,16 +47,30 @@ export default function RegisterPaymentScreen() {
       Alert.alert('Enter a valid payment amount');
       return;
     }
-    setLoading(true);
-    const payment = await registerPayment({
-      agreementId: agreement.id,
-      amount: parsedAmount,
-      paymentDate,
-      method,
-      notes: notes || undefined,
-    });
-    setLoading(false);
-    router.replace(`/payment-confirmation/${payment.id}`);
+    if (parsedAmount > remaining) {
+      Alert.alert('Payment is above the remaining balance', `The remaining confirmed balance is ${formatMoney(remaining)}.`);
+      return;
+    }
+    if (!canRegisterPayment) {
+      Alert.alert('Only the borrower can register a payment');
+      return;
+    }
+    try {
+      setLoading(true);
+      await registerPayment({
+        agreementId: agreement.id,
+        amount: parsedAmount,
+        paymentDate,
+        method,
+        notes: notes || undefined,
+      });
+      Alert.alert('Payment submitted', 'The lender can now confirm this payment.');
+      router.replace(`/agreement/${agreement.id}`);
+    } catch (error) {
+      Alert.alert('Could not register payment', error instanceof Error ? error.message : 'Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -74,7 +92,8 @@ export default function RegisterPaymentScreen() {
         ))}
       </View>
       <FormInput label="Notes optional" value={notes} onChangeText={setNotes} multiline style={styles.notes} />
-      <PrimaryButton label="Submit for confirmation" onPress={submit} loading={loading} />
+      {!canRegisterPayment ? <Text style={styles.warning}>Only the borrower can register payments for this agreement.</Text> : null}
+      <PrimaryButton label="Submit for confirmation" onPress={submit} loading={loading} disabled={!canRegisterPayment} />
     </ScreenContainer>
   );
 }
@@ -92,4 +111,5 @@ const styles = StyleSheet.create({
   methodText: { color: colors.textMuted, fontSize: typography.small, fontWeight: '800', textTransform: 'capitalize' },
   methodTextActive: { color: '#FFFFFF' },
   notes: { minHeight: 96, textAlignVertical: 'top', paddingTop: spacing.md },
+  warning: { color: colors.warning, fontSize: typography.small, fontWeight: '800', lineHeight: 20 },
 });
