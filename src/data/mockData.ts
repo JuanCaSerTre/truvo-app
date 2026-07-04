@@ -11,6 +11,7 @@ export const currentUser: User = {
   id: 'user-1',
   name: 'Alex Morgan',
   phone: '+1 555 0134',
+  email: 'alex@truvo.app',
   subscription_status: 'free',
   createdAt: iso(-90),
 };

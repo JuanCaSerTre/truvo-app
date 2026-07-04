@@ -9,28 +9,34 @@ import { useTruvoStore } from '@/hooks/useTruvoStore';
 import { colors, typography } from '@/constants/theme';
 
 export default function OtpVerificationScreen() {
-  const { phone = '' } = useLocalSearchParams<{ phone: string }>();
+  const { email = '' } = useLocalSearchParams<{ email: string }>();
   const { setUserFromAuth } = useTruvoStore();
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
 
   const verify = async () => {
-    if (code.trim().length < 4) {
-      Alert.alert('Enter the SMS code');
+    const normalizedCode = code.trim();
+    if (normalizedCode.length < 6) {
+      Alert.alert('Enter the email verification code');
       return;
     }
-    setLoading(true);
-    const user = await authService.verifyOtp(phone, code);
-    setUserFromAuth(user);
-    setLoading(false);
-    router.replace('/(auth)/onboarding');
+    try {
+      setLoading(true);
+      const user = await authService.verifyOtp(email, normalizedCode);
+      setUserFromAuth(user);
+      router.replace('/(auth)/onboarding');
+    } catch (error) {
+      Alert.alert('Verification failed', error instanceof Error ? error.message : 'Unable to verify the email code.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <ScreenContainer>
       <Text style={styles.title}>Verify code</Text>
-      <Text style={styles.copy}>Enter the SMS code sent to {phone}. Any 4 digits work in this placeholder flow.</Text>
-      <FormInput label="OTP code" value={code} onChangeText={setCode} placeholder="1234" keyboardType="number-pad" maxLength={6} />
+      <Text style={styles.copy}>Enter the email code sent to {email}.</Text>
+      <FormInput label="Verification code" value={code} onChangeText={setCode} placeholder="12345678" keyboardType="number-pad" maxLength={12} />
       <PrimaryButton label="Verify" onPress={verify} loading={loading} />
     </ScreenContainer>
   );

@@ -8,25 +8,31 @@ import { authService } from '@/services/authService';
 import { colors, spacing, typography } from '@/constants/theme';
 
 export default function PhoneLoginScreen() {
-  const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
 
   const submit = async () => {
-    if (phone.trim().length < 8) {
-      Alert.alert('Enter a valid phone number');
+    if (!email.includes('@')) {
+      Alert.alert('Enter a valid email');
       return;
     }
-    setLoading(true);
-    await authService.sendOtp(phone);
-    setLoading(false);
-    router.push({ pathname: '/(auth)/otp-verification', params: { phone } });
+    try {
+      setLoading(true);
+      const normalizedEmail = email.trim().toLowerCase();
+      await authService.sendOtp(normalizedEmail);
+      router.push({ pathname: '/(auth)/otp-verification', params: { email: normalizedEmail } });
+    } catch (error) {
+      Alert.alert('Email login unavailable', error instanceof Error ? error.message : 'Unable to send the email code.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <ScreenContainer>
-      <Text style={styles.title}>Log in with phone</Text>
-      <Text style={styles.copy}>We will send a one-time SMS code. This is a placeholder flow ready for a real OTP provider.</Text>
-      <FormInput label="Phone number" value={phone} onChangeText={setPhone} placeholder="+1 555 0123" keyboardType="phone-pad" />
+      <Text style={styles.title}>Log in with email</Text>
+      <Text style={styles.copy}>We will send a one-time code to your email while SMS login is being configured.</Text>
+      <FormInput label="Email" value={email} onChangeText={setEmail} placeholder="you@example.com" keyboardType="email-address" autoCapitalize="none" />
       <PrimaryButton label="Send code" onPress={submit} loading={loading} />
     </ScreenContainer>
   );

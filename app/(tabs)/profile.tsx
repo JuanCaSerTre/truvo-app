@@ -19,7 +19,7 @@ export default function ProfileScreen() {
       </View>
       <View>
         <Text style={styles.title}>{currentUser.name}</Text>
-        <Text style={styles.phone}>{currentUser.phone}</Text>
+        <Text style={styles.phone}>{currentUser.email || currentUser.phone}</Text>
       </View>
       <StatusBadge status={currentUser.subscription_status} />
       <View style={styles.card}>

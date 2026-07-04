@@ -29,7 +29,8 @@ create type timeline_event_type as enum (
 create table public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   name text not null default 'TRUVO user',
-  phone text unique not null,
+  phone text unique,
+  email text unique,
   avatar_url text,
   subscription_status subscription_status not null default 'free',
   created_at timestamptz not null default now()

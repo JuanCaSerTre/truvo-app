@@ -20,7 +20,7 @@ export default function WelcomeScreen() {
         <Text style={styles.note}>
           TRUVO does not lend money or process transfers. It helps individuals record, track, and confirm their own agreements.
         </Text>
-        <PrimaryButton label="Continue with phone" onPress={() => router.push('/(auth)/phone-login')} />
+        <PrimaryButton label="Continue with email" onPress={() => router.push('/(auth)/phone-login')} />
       </View>
     </ScreenContainer>
   );

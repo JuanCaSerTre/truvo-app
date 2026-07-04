@@ -4,6 +4,7 @@ export interface User {
   id: string;
   name: string;
   phone: string;
+  email?: string;
   avatarUrl?: string;
   subscription_status: SubscriptionStatus;
   createdAt: string;
