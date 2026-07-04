@@ -27,6 +27,8 @@ const modeOptions: { value: CalculationMode; label: string; helper: string }[] =
 const parseOptionalAmount = (value: string) => (value.trim() ? toNumber(value) : undefined);
 const titleCase = (value: string) => value.replace('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 const isIsoDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
+const isValidEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+const normalizePhone = (value: string) => value.replace(/\D/g, '');
 
 export default function CreateAgreementScreen() {
   const { agreements, contacts, currentUser, createAgreement } = useTruvoStore();
@@ -97,7 +99,14 @@ export default function CreateAgreementScreen() {
   }, [borrowerEmail, contacts]);
 
   const normalizedBorrowerEmail = borrowerEmail.trim().toLowerCase();
-  const borrowerIsValid = normalizedBorrowerEmail.includes('@');
+  const normalizedBorrowerPhone = normalizePhone(borrowerPhone);
+  const normalizedCurrentUserPhone = normalizePhone(currentUser.phone);
+  const borrowerEmailIsValid = isValidEmail(normalizedBorrowerEmail);
+  const borrowerPhoneIsValid = !borrowerPhone.trim() || normalizedBorrowerPhone.length >= 7;
+  const borrowerIsSelf =
+    normalizedBorrowerEmail === currentUser.email?.toLowerCase() ||
+    Boolean(normalizedBorrowerPhone && normalizedBorrowerPhone === normalizedCurrentUserPhone);
+  const borrowerIsValid = borrowerEmailIsValid && borrowerPhoneIsValid && !borrowerIsSelf;
   const amountIsValid = calculation.principalAmount > 0 && isIsoDate(startDate);
   const repaymentIsValid = calculation.isValid;
   const canContinue = stepIndex === 0 ? borrowerIsValid : stepIndex === 1 ? amountIsValid : stepIndex === 2 ? repaymentIsValid : calculation.isValid && borrowerIsValid;
@@ -121,8 +130,18 @@ export default function CreateAgreementScreen() {
       router.push('/premium');
       return;
     }
-    if (!borrowerIsValid) {
-      Alert.alert('Add borrower email');
+    if (!borrowerEmailIsValid) {
+      Alert.alert('Add a valid borrower email');
+      setStepIndex(0);
+      return;
+    }
+    if (!borrowerPhoneIsValid) {
+      Alert.alert('Check borrower phone', 'Use a valid phone number or leave it blank.');
+      setStepIndex(0);
+      return;
+    }
+    if (borrowerIsSelf) {
+      Alert.alert('Choose another borrower', 'You cannot create an agreement with yourself.');
       setStepIndex(0);
       return;
     }
@@ -131,23 +150,28 @@ export default function CreateAgreementScreen() {
       setStepIndex(2);
       return;
     }
-    setLoading(true);
-    const agreement = await createAgreement({
-      borrowerPhone: borrowerPhone.trim(),
-      borrowerEmail: normalizedBorrowerEmail,
-      borrowerName: borrowerName.trim() || undefined,
-      principalAmount: calculation.principalAmount,
-      interestRate: calculation.interestRate,
-      totalRepaymentAmount: calculation.totalRepaymentAmount,
-      numberOfPayments: calculation.numberOfPayments,
-      paymentFrequency,
-      startDate,
-      dueDate: calculation.dueDate || startDate,
-      notes: notes.trim() || undefined,
-      paymentSchedule: calculation.paymentSchedule,
-    });
-    setLoading(false);
-    router.push(`/agreement/${agreement.id}`);
+    try {
+      setLoading(true);
+      const agreement = await createAgreement({
+        borrowerPhone: borrowerPhone.trim(),
+        borrowerEmail: normalizedBorrowerEmail,
+        borrowerName: borrowerName.trim() || undefined,
+        principalAmount: calculation.principalAmount,
+        interestRate: calculation.interestRate,
+        totalRepaymentAmount: calculation.totalRepaymentAmount,
+        numberOfPayments: calculation.numberOfPayments,
+        paymentFrequency,
+        startDate,
+        dueDate: calculation.dueDate || startDate,
+        notes: notes.trim() || undefined,
+        paymentSchedule: calculation.paymentSchedule,
+      });
+      router.push(`/agreement/${agreement.id}`);
+    } catch (error) {
+      Alert.alert('Could not create agreement', error instanceof Error ? error.message : 'Please check the details and try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -175,7 +199,8 @@ export default function CreateAgreementScreen() {
         {stepIndex === 0 ? (
           <WizardCard title="Borrower" subtitle="Start with the person who will receive the request.">
             <FormInput label="Borrower email" value={borrowerEmail} onChangeText={setBorrowerEmail} keyboardType="email-address" autoCapitalize="none" placeholder="borrower@example.com" />
-            {attemptedStep && !borrowerIsValid ? <Text style={styles.errorText}>Borrower email is required.</Text> : null}
+            {attemptedStep && !borrowerEmailIsValid ? <Text style={styles.errorText}>Enter a valid borrower email.</Text> : null}
+            {attemptedStep && borrowerIsSelf ? <Text style={styles.errorText}>You cannot create an agreement with yourself.</Text> : null}
             {contactSuggestions.length ? (
               <View style={styles.suggestions}>
                 <Text style={styles.fieldLabel}>Saved contacts</Text>
@@ -196,6 +221,7 @@ export default function CreateAgreementScreen() {
             ) : null}
             <FormInput label="Borrower name optional" value={borrowerName} onChangeText={setBorrowerName} placeholder="Name" />
             <FormInput label="Borrower phone optional" value={borrowerPhone} onChangeText={setBorrowerPhone} keyboardType="phone-pad" placeholder="+1 555 0123" />
+            {attemptedStep && !borrowerPhoneIsValid ? <Text style={styles.errorText}>Use a valid phone number or leave it blank.</Text> : null}
           </WizardCard>
         ) : null}
 

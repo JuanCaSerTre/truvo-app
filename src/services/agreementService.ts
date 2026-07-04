@@ -216,7 +216,10 @@ export const agreementService = {
           status: payment.status,
         })),
       );
-      if (scheduleError) throw scheduleError;
+      if (scheduleError) {
+        await supabase.from('agreements').delete().eq('id', agreement.id);
+        throw scheduleError;
+      }
     }
 
     return agreement;

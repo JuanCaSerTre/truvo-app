@@ -57,6 +57,7 @@ const id = () =>
     return value.toString(16);
   });
 const now = () => new Date().toISOString();
+const normalizePhone = (value?: string) => value?.replace(/\D/g, '') || '';
 
 export function TruvoProvider({ children }: PropsWithChildren) {
   const [currentUser, setCurrentUser] = useState(seedCurrentUser);
@@ -106,13 +107,23 @@ export function TruvoProvider({ children }: PropsWithChildren) {
     agreement.borrowerPhone === currentUser.phone;
 
   const createAgreement = async (input: AgreementInput) => {
+    const borrowerEmail = input.borrowerEmail?.trim().toLowerCase();
+    const borrowerPhone = normalizePhone(input.borrowerPhone);
+    const currentUserPhone = normalizePhone(currentUser.phone);
+    if (!borrowerEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(borrowerEmail)) {
+      throw new Error('Add a valid borrower email.');
+    }
+    if (borrowerEmail === currentUser.email?.toLowerCase() || Boolean(borrowerPhone && borrowerPhone === currentUserPhone)) {
+      throw new Error('You cannot create an agreement with yourself.');
+    }
+
     const interestAmount = Math.max(input.totalRepaymentAmount - input.principalAmount, 0);
     const nextScheduledPayment = input.paymentSchedule?.[0];
     const agreement: Agreement = {
       id: id(),
       lenderId: currentUser.id,
       borrowerPhone: input.borrowerPhone,
-      borrowerEmail: input.borrowerEmail,
+      borrowerEmail,
       borrowerName: input.borrowerName,
       principalAmount: input.principalAmount,
       interestRate: input.interestRate,
