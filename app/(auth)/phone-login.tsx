@@ -13,6 +13,7 @@ type AuthMode = 'sign_in' | 'sign_up';
 export default function PhoneLoginScreen() {
   const { setUserFromAuth } = useTruvoStore();
   const [mode, setMode] = useState<AuthMode>('sign_in');
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -24,6 +25,10 @@ export default function PhoneLoginScreen() {
       Alert.alert('Enter a valid email');
       return;
     }
+    if (mode === 'sign_up' && name.trim().length < 2) {
+      Alert.alert('Enter your full name');
+      return;
+    }
     if (password.length < 8) {
       Alert.alert('Use at least 8 characters for your password');
       return;
@@ -32,7 +37,7 @@ export default function PhoneLoginScreen() {
     try {
       setLoading(true);
       if (mode === 'sign_up') {
-        const result = await authService.signUpWithPassword(normalizedEmail, password);
+        const result = await authService.signUpWithPassword(normalizedEmail, password, name);
         if (result.needsEmailConfirmation) {
           Alert.alert('Confirmation requested', 'Supabase accepted the signup request. Check your inbox and Auth logs to confirm the email was delivered, then come back and sign in.');
           return;
@@ -88,6 +93,9 @@ export default function PhoneLoginScreen() {
       </View>
 
       <FormInput label="Email" value={email} onChangeText={setEmail} placeholder="you@example.com" keyboardType="email-address" autoCapitalize="none" />
+      {mode === 'sign_up' ? (
+        <FormInput label="Full name" value={name} onChangeText={setName} placeholder="Alex Morgan" autoCapitalize="words" />
+      ) : null}
       <FormInput label="Password" value={password} onChangeText={setPassword} placeholder="At least 8 characters" secureTextEntry autoCapitalize="none" />
       <PrimaryButton label={mode === 'sign_in' ? 'Sign in' : 'Create account'} onPress={submit} loading={loading} />
       {mode === 'sign_up' ? (

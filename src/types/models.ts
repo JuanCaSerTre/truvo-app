@@ -1,13 +1,30 @@
 export type SubscriptionStatus = 'free' | 'premium_monthly' | 'premium_yearly';
+export type ContactPreference = 'email' | 'phone' | 'whatsapp';
+export type UserRolePreference = 'lender' | 'borrower' | 'both';
 
 export interface User {
   id: string;
   name: string;
   phone: string;
   email?: string;
+  country?: string;
+  currency?: string;
+  timezone?: string;
+  contactPreference?: ContactPreference;
+  userRole?: UserRolePreference;
   avatarUrl?: string;
   subscription_status: SubscriptionStatus;
   createdAt: string;
+}
+
+export interface UserProfileInput {
+  name: string;
+  phone?: string;
+  country?: string;
+  currency?: string;
+  timezone?: string;
+  contactPreference?: ContactPreference;
+  userRole?: UserRolePreference;
 }
 
 export interface Contact {
@@ -82,10 +99,18 @@ export type NotificationType =
   | 'new_agreement_request'
   | 'agreement_accepted'
   | 'agreement_rejected'
+  | 'agreement_cancelled'
+  | 'agreement_completed'
   | 'payment_registered'
+  | 'payment_waiting_confirmation'
   | 'payment_confirmed'
   | 'payment_rejected'
-  | 'payment_reminder';
+  | 'upcoming_payment_reminder'
+  | 'overdue_payment_reminder'
+  | 'premium_subscription'
+  | 'system_update';
+
+export type NotificationCategory = 'agreements' | 'payments' | 'reminders' | 'system';
 
 export interface Notification {
   id: string;
@@ -95,8 +120,20 @@ export interface Notification {
   body: string;
   read: boolean;
   createdAt: string;
+  archivedAt?: string;
   relatedAgreementId?: string;
   relatedPaymentId?: string;
+}
+
+export interface NotificationSettings {
+  agreementRequests: boolean;
+  paymentConfirmations: boolean;
+  paymentReminders: boolean;
+  overduePayments: boolean;
+  marketingMessages: boolean;
+  productUpdates: boolean;
+  pushNotifications: boolean;
+  emailNotifications: boolean;
 }
 
 export type TimelineEventType =

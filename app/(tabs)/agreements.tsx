@@ -25,26 +25,49 @@ export default function AgreementsScreen() {
   const [selected, setSelected] = useState<Filter>('All');
   const { agreements, currentUser, payments, syncing } = useTruvoStore();
 
+  const userAgreements = useMemo(
+    () =>
+      agreements.filter(
+        (agreement) =>
+          agreement.lenderId === currentUser.id ||
+          agreement.borrowerId === currentUser.id ||
+          agreement.borrowerEmail?.toLowerCase() === currentUser.email?.toLowerCase() ||
+          agreement.borrowerPhone === currentUser.phone,
+      ),
+    [agreements, currentUser.email, currentUser.id, currentUser.phone],
+  );
+
   const metrics = useMemo(() => {
-    const receive = agreements
+    const receive = userAgreements
       .filter((agreement) => agreement.lenderId === currentUser.id)
       .reduce((sum, agreement) => sum + getRemainingBalance(agreement, payments), 0);
-    const pay = agreements
-      .filter((agreement) => agreement.borrowerId === currentUser.id || agreement.borrowerEmail?.toLowerCase() === currentUser.email?.toLowerCase())
+    const pay = userAgreements
+      .filter(
+        (agreement) =>
+          agreement.borrowerId === currentUser.id ||
+          agreement.borrowerEmail?.toLowerCase() === currentUser.email?.toLowerCase() ||
+          agreement.borrowerPhone === currentUser.phone,
+      )
       .reduce((sum, agreement) => sum + getRemainingBalance(agreement, payments), 0);
     return { receive, pay, net: receive - pay };
-  }, [agreements, currentUser.email, currentUser.id, payments]);
+  }, [currentUser.email, currentUser.id, currentUser.phone, payments, userAgreements]);
 
   const filtered = useMemo(() => {
-    return agreements.filter((agreement) => {
+    return userAgreements.filter((agreement) => {
       if (selected === 'Receiving') return agreement.lenderId === currentUser.id;
-      if (selected === 'Paying') return agreement.borrowerId === currentUser.id || agreement.borrowerEmail?.toLowerCase() === currentUser.email?.toLowerCase();
+      if (selected === 'Paying') {
+        return (
+          agreement.borrowerId === currentUser.id ||
+          agreement.borrowerEmail?.toLowerCase() === currentUser.email?.toLowerCase() ||
+          agreement.borrowerPhone === currentUser.phone
+        );
+      }
       if (selected === 'Pending') return agreement.status === 'pending';
       if (selected === 'Completed') return agreement.status === 'completed';
       if (selected === 'Active') return agreement.status === 'active';
       return true;
     });
-  }, [agreements, currentUser.email, currentUser.id, selected]);
+  }, [currentUser.email, currentUser.id, currentUser.phone, selected, userAgreements]);
 
   const empty = getEmptyState(selected);
 

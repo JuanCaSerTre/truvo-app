@@ -1,8 +1,8 @@
-import { User } from '@/types/models';
+import { User, UserProfileInput } from '@/types/models';
 import { currentUser } from '@/data/mockData';
 import { supabase } from '@/lib/supabase';
 
-const fallbackUser = (email: string): User => ({ ...currentUser, email });
+const fallbackUser = (email: string, name?: string): User => ({ ...currentUser, email, name: name?.trim() || email.split('@')[0] || currentUser.name });
 
 const clearLocalAuthStorage = () => {
   const storage = globalThis.localStorage;
@@ -15,50 +15,87 @@ const clearLocalAuthStorage = () => {
   authKeys.forEach((key) => storage.removeItem(key));
 };
 
-const getOrCreateProfile = async (email: string): Promise<User> => {
-  if (!supabase) return fallbackUser(email);
+const mapProfileToUser = (data: {
+  id: string;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  country?: string | null;
+  currency?: string | null;
+  timezone?: string | null;
+  contact_preference?: User['contactPreference'] | null;
+  user_role?: User['userRole'] | null;
+  avatar_url: string | null;
+  subscription_status: User['subscription_status'];
+  created_at: string;
+}): User => ({
+  id: data.id,
+  name: data.name,
+  phone: data.phone || '',
+  email: data.email || undefined,
+  country: data.country || undefined,
+  currency: data.currency || undefined,
+  timezone: data.timezone || undefined,
+  contactPreference: data.contact_preference || undefined,
+  userRole: data.user_role || undefined,
+  avatarUrl: data.avatar_url || undefined,
+  subscription_status: data.subscription_status,
+  createdAt: data.created_at,
+});
+
+const profileSelect =
+  'id, name, phone, email, country, currency, timezone, contact_preference, user_role, avatar_url, subscription_status, created_at';
+
+const getOrCreateProfile = async (email: string, name?: string): Promise<User> => {
+  if (!supabase) return fallbackUser(email, name);
   const { data: authData, error: userError } = await supabase.auth.getUser();
   if (userError) throw userError;
   const authUser = authData.user;
   if (!authUser) throw new Error('No authenticated Supabase user found.');
 
+  const { data: existingProfile, error: existingProfileError } = await supabase
+    .from('profiles')
+    .select(profileSelect)
+    .eq('id', authUser.id)
+    .maybeSingle();
+
+  if (existingProfileError) throw existingProfileError;
+  if (existingProfile) return mapProfileToUser(existingProfile);
+
   const profile = {
     id: authUser.id,
-    name: authUser.user_metadata?.name || email.split('@')[0] || 'TRUVO user',
+    name: name?.trim() || authUser.user_metadata?.name || email.split('@')[0] || 'TRUVO user',
     email,
     phone: authUser.phone || null,
+    country: null,
+    currency: 'USD',
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    contact_preference: 'email' as const,
+    user_role: 'both' as const,
     subscription_status: 'free' as const,
   };
 
   const { data, error } = await supabase
     .from('profiles')
-    .upsert(profile, { onConflict: 'id' })
-    .select('id, name, phone, email, avatar_url, subscription_status, created_at')
+    .insert(profile)
+    .select(profileSelect)
     .single();
 
   if (error) throw error;
 
-  return {
-    id: data.id,
-    name: data.name,
-    phone: data.phone || '',
-    email: data.email || undefined,
-    avatarUrl: data.avatar_url || undefined,
-    subscription_status: data.subscription_status,
-    createdAt: data.created_at,
-  };
+  return mapProfileToUser(data);
 };
 
 export const authService = {
-  async signUpWithPassword(email: string, password: string): Promise<{ user?: User; needsEmailConfirmation: boolean }> {
-    if (!supabase) return { user: fallbackUser(email), needsEmailConfirmation: false };
+  async signUpWithPassword(email: string, password: string, name: string): Promise<{ user?: User; needsEmailConfirmation: boolean }> {
+    if (!supabase) return { user: fallbackUser(email, name), needsEmailConfirmation: false };
 
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
         data: {
-          name: email.split('@')[0] || 'TRUVO user',
+          name: name.trim() || email.split('@')[0] || 'TRUVO user',
         },
       },
     });
@@ -66,7 +103,7 @@ export const authService = {
     if (error) throw error;
     if (!data.session) return { needsEmailConfirmation: true };
 
-    return { user: await getOrCreateProfile(email), needsEmailConfirmation: false };
+    return { user: await getOrCreateProfile(email, name), needsEmailConfirmation: false };
   },
 
   async signInWithPassword(email: string, password: string): Promise<User> {
@@ -93,6 +130,45 @@ export const authService = {
     const email = data.session?.user.email;
     if (!email) return null;
     return getOrCreateProfile(email);
+  },
+
+  async updateProfile(input: UserProfileInput): Promise<User> {
+    const normalized: UserProfileInput = {
+      ...input,
+      name: input.name.trim(),
+      phone: input.phone?.trim() || '',
+      country: input.country?.trim() || undefined,
+      currency: input.currency?.trim().toUpperCase() || undefined,
+      timezone: input.timezone?.trim() || undefined,
+      contactPreference: input.contactPreference || 'email',
+      userRole: input.userRole || 'both',
+    };
+
+    if (!normalized.name) throw new Error('Name is required.');
+    if (!supabase) return { ...currentUser, ...normalized };
+
+    const { data: authData, error: userError } = await supabase.auth.getUser();
+    if (userError) throw userError;
+    const authUser = authData.user;
+    if (!authUser?.email) throw new Error('No authenticated Supabase user found.');
+
+    const { data, error } = await supabase
+      .from('profiles')
+      .update({
+        name: normalized.name,
+        phone: normalized.phone || null,
+        country: normalized.country || null,
+        currency: normalized.currency || null,
+        timezone: normalized.timezone || null,
+        contact_preference: normalized.contactPreference,
+        user_role: normalized.userRole,
+      })
+      .eq('id', authUser.id)
+      .select(profileSelect)
+      .single();
+
+    if (error) throw error;
+    return mapProfileToUser(data);
   },
 
   async sendOtp(email: string): Promise<{ requestId: string }> {

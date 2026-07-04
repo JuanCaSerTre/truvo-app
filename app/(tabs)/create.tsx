@@ -136,7 +136,7 @@ export default function CreateAgreementScreen() {
       return;
     }
     if (!borrowerPhoneIsValid) {
-      Alert.alert('Check borrower phone', 'Use a valid phone number or leave it blank.');
+      Alert.alert('Check optional phone', 'Use a valid phone number or leave it blank.');
       setStepIndex(0);
       return;
     }
@@ -220,7 +220,7 @@ export default function CreateAgreementScreen() {
               </View>
             ) : null}
             <FormInput label="Borrower name optional" value={borrowerName} onChangeText={setBorrowerName} placeholder="Name" />
-            <FormInput label="Borrower phone optional" value={borrowerPhone} onChangeText={setBorrowerPhone} keyboardType="phone-pad" placeholder="+1 555 0123" />
+            <FormInput label="Secondary phone optional" value={borrowerPhone} onChangeText={setBorrowerPhone} keyboardType="phone-pad" placeholder="+1 555 0123" />
             {attemptedStep && !borrowerPhoneIsValid ? <Text style={styles.errorText}>Use a valid phone number or leave it blank.</Text> : null}
           </WizardCard>
         ) : null}

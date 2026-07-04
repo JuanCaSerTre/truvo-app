@@ -26,22 +26,37 @@ export default function AgreementDetailsScreen() {
     );
   }
 
-  const totalPaid = getTotalPaid(agreement.id, payments);
-  const remainingBalance = getRemainingBalance(agreement, payments);
-  const progress = agreement.totalRepaymentAmount > 0 ? Math.min(totalPaid / agreement.totalRepaymentAmount, 1) : 0;
-  const agreementPayments = payments.filter((payment) => payment.agreementId === agreement.id);
-  const timeline = timelineEvents.filter((event) => event.agreementId === agreement.id);
   const isLender = agreement.lenderId === currentUser.id;
   const isBorrower =
     agreement.borrowerId === currentUser.id ||
     agreement.borrowerEmail?.toLowerCase() === currentUser.email?.toLowerCase() ||
     agreement.borrowerPhone === currentUser.phone;
+  if (!isLender && !isBorrower) {
+    return (
+      <ScreenContainer>
+        <EmptyState title="Agreement not available" message="This agreement is not linked to your account." />
+      </ScreenContainer>
+    );
+  }
+
+  const totalPaid = getTotalPaid(agreement.id, payments);
+  const remainingBalance = getRemainingBalance(agreement, payments);
+  const progress = agreement.totalRepaymentAmount > 0 ? Math.min(totalPaid / agreement.totalRepaymentAmount, 1) : 0;
+  const agreementPayments = payments.filter((payment) => payment.agreementId === agreement.id);
+  const timeline = timelineEvents.filter((event) => event.agreementId === agreement.id);
   const canRespondToPending = agreement.status === 'pending' && isBorrower && !isLender;
   const canManagePending = agreement.status === 'pending' && isLender;
-  const accept = () => updateAgreementStatus(agreement.id, 'active');
+  const updateStatus = (status: 'active' | 'rejected' | 'cancelled') => {
+    try {
+      updateAgreementStatus(agreement.id, status);
+      if (status === 'rejected') router.replace('/(tabs)/agreements');
+    } catch (error) {
+      Alert.alert('Could not update agreement', error instanceof Error ? error.message : 'Please try again.');
+    }
+  };
+  const accept = () => updateStatus('active');
   const reject = () => {
-    updateAgreementStatus(agreement.id, 'rejected');
-    router.replace('/(tabs)/agreements');
+    updateStatus('rejected');
   };
 
   if (canRespondToPending) {
@@ -96,7 +111,7 @@ export default function AgreementDetailsScreen() {
       </View>
       {agreement.status === 'active' && isBorrower ? <PrimaryButton label="Register payment" onPress={() => router.push(`/register-payment/${agreement.id}`)} /> : null}
       {canEditAgreement(agreement) && isLender ? <PrimaryButton label="Edit agreement" variant="outline" onPress={() => router.push('/create')} /> : null}
-      {canManagePending ? <PrimaryButton label="Cancel pending agreement" variant="danger" onPress={() => updateAgreementStatus(agreement.id, 'cancelled')} /> : null}
+      {canManagePending ? <PrimaryButton label="Cancel pending agreement" variant="danger" onPress={() => updateStatus('cancelled')} /> : null}
       {canManagePending ? <PrimaryButton label="Preview borrower request" variant="outline" onPress={() => router.push(`/agreement-request/${agreement.id}`)} /> : null}
 
       <Text style={styles.sectionTitle}>Payment history</Text>

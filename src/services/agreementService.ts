@@ -50,7 +50,7 @@ type PaymentRow = {
 type NotificationRow = {
   id: string;
   user_id: string;
-  type: Notification['type'];
+  type: Notification['type'] | 'payment_reminder';
   title: string;
   body: string;
   read: boolean;
@@ -178,7 +178,7 @@ const fromPaymentRow = (row: PaymentRow): Payment => ({
 const fromNotificationRow = (row: NotificationRow): Notification => ({
   id: row.id,
   userId: row.user_id,
-  type: row.type,
+  type: row.type === 'payment_reminder' ? 'upcoming_payment_reminder' : row.type,
   title: row.title,
   body: row.body,
   read: row.read,

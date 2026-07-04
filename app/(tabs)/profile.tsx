@@ -1,12 +1,15 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useState } from 'react';
-import { Alert, Image, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { ScreenContainer } from '@/components/ScreenContainer';
+import { FormInput } from '@/components/FormInput';
+import { PrimaryButton } from '@/components/PrimaryButton';
 import { StatusBadge } from '@/components/StatusBadge';
 import { colors, radii, spacing, typography } from '@/constants/theme';
 import { useTruvoStore } from '@/hooks/useTruvoStore';
 import { authService } from '@/services/authService';
+import { ContactPreference, UserProfileInput, UserRolePreference } from '@/types/models';
 import { getRemainingBalance } from '@/utils/agreementRules';
 import { formatMoney } from '@/utils/money';
 
@@ -26,11 +29,23 @@ type SettingSection = {
 };
 
 export default function ProfileScreen() {
-  const { currentUser, agreements, payments, clearUserSessionData } = useTruvoStore();
+  const { currentUser, agreements, payments, updateCurrentUserProfile, clearUserSessionData } = useTruvoStore();
   const [confirmLogoutVisible, setConfirmLogoutVisible] = useState(false);
+  const [editProfileVisible, setEditProfileVisible] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [profileForm, setProfileForm] = useState<UserProfileInput>({
+    name: currentUser.name,
+    phone: currentUser.phone,
+    country: currentUser.country || '',
+    currency: currentUser.currency || 'USD',
+    timezone: currentUser.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
+    contactPreference: currentUser.contactPreference || 'email',
+    userRole: currentUser.userRole || 'both',
+  });
 
-  const displayContact = currentUser.phone || currentUser.email || 'No phone number added';
+  const displayContact = currentUser.email || currentUser.phone || 'No email added';
+  const profileDetails = [currentUser.country, currentUser.currency, currentUser.timezone].filter(Boolean).join(' · ');
   const isPremium = currentUser.subscription_status !== 'free';
   const subscriptionLabel =
     currentUser.subscription_status === 'premium_yearly'
@@ -70,14 +85,25 @@ export default function ProfileScreen() {
         {
           icon: 'person-circle-outline',
           title: 'Personal details',
-          description: 'Name, phone number, and profile information',
-          onPress: () => Alert.alert('Personal details', 'Profile editing will be added in a future step.'),
+          description: 'Name, email, optional phone, and profile preferences',
+          onPress: () => {
+            setProfileForm({
+              name: currentUser.name,
+              phone: currentUser.phone,
+              country: currentUser.country || '',
+              currency: currentUser.currency || 'USD',
+              timezone: currentUser.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
+              contactPreference: currentUser.contactPreference || 'email',
+              userRole: currentUser.userRole || 'both',
+            });
+            setEditProfileVisible(true);
+          },
         },
         {
           icon: 'notifications-outline',
           title: 'Notifications',
-          description: 'Agreement updates and payment confirmations',
-          onPress: () => router.push('/notifications'),
+          description: 'Push alerts, reminders, and activity preferences',
+          onPress: () => router.push('/notification-settings' as never),
         },
       ],
     },
@@ -130,6 +156,35 @@ export default function ProfileScreen() {
     }
   };
 
+  const updateProfileField = <Key extends keyof UserProfileInput>(key: Key, value: UserProfileInput[Key]) => {
+    setProfileForm((form) => ({ ...form, [key]: value }));
+  };
+
+  const handleSaveProfile = async () => {
+    if (profileForm.name.trim().length < 2) {
+      Alert.alert('Enter your full name');
+      return;
+    }
+    if (profileForm.phone?.trim() && profileForm.phone.replace(/\D/g, '').length < 7) {
+      Alert.alert('Check phone number', 'Use a valid phone number or leave it blank.');
+      return;
+    }
+    if (profileForm.currency?.trim() && profileForm.currency.trim().length !== 3) {
+      Alert.alert('Check currency', 'Use a 3-letter code like USD, COP, or AUD.');
+      return;
+    }
+
+    try {
+      setSavingProfile(true);
+      await updateCurrentUserProfile(profileForm);
+      setEditProfileVisible(false);
+    } catch (error) {
+      Alert.alert('Could not update profile', error instanceof Error ? error.message : 'Please try again.');
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
   return (
     <ScreenContainer>
       <View style={styles.headerCard}>
@@ -144,9 +199,10 @@ export default function ProfileScreen() {
           <View style={styles.headerCopy}>
             <Text style={styles.title}>{currentUser.name}</Text>
             <View style={styles.contactRow}>
-              <Ionicons name="call-outline" size={15} color={colors.textMuted} />
-              <Text style={styles.phone}>{displayContact}</Text>
+              <Ionicons name="mail-outline" size={15} color={colors.textMuted} />
+              <Text style={styles.contactText}>{displayContact}</Text>
             </View>
+            {profileDetails ? <Text style={styles.profileDetails}>{profileDetails}</Text> : null}
           </View>
         </View>
         <View style={styles.headerMeta}>
@@ -226,9 +282,57 @@ export default function ProfileScreen() {
           </View>
         </View>
       </Modal>
+
+      <Modal
+        animationType="slide"
+        transparent
+        visible={editProfileVisible}
+        onRequestClose={() => setEditProfileVisible(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.profileModalCard}>
+            <View style={styles.profileModalHeader}>
+              <View style={styles.profileModalTitleWrap}>
+                <Text style={styles.modalTitle}>Personal details</Text>
+                <Text style={styles.modalMessage}>Email stays as the main account identifier.</Text>
+              </View>
+              <Pressable accessibilityRole="button" onPress={() => setEditProfileVisible(false)} style={styles.iconButton}>
+                <Ionicons name="close" size={20} color={colors.text} />
+              </Pressable>
+            </View>
+            <ScrollView contentContainerStyle={styles.profileForm} showsVerticalScrollIndicator={false}>
+              <FormInput label="Full name" value={profileForm.name} onChangeText={(value) => updateProfileField('name', value)} autoCapitalize="words" />
+              <FormInput label="Email" value={currentUser.email || ''} editable={false} autoCapitalize="none" keyboardType="email-address" />
+              <FormInput label="Phone optional" value={profileForm.phone || ''} onChangeText={(value) => updateProfileField('phone', value)} keyboardType="phone-pad" placeholder="+1 555 0123" />
+              <FormInput label="Country" value={profileForm.country || ''} onChangeText={(value) => updateProfileField('country', value)} placeholder="United States" />
+              <FormInput label="Currency" value={profileForm.currency || ''} onChangeText={(value) => updateProfileField('currency', value.toUpperCase())} placeholder="USD" autoCapitalize="characters" maxLength={3} />
+              <FormInput label="Timezone" value={profileForm.timezone || ''} onChangeText={(value) => updateProfileField('timezone', value)} placeholder="America/New_York" autoCapitalize="none" />
+
+              <OptionGroup title="Preferred contact" options={contactOptions} value={profileForm.contactPreference || 'email'} onChange={(value) => updateProfileField('contactPreference', value)} />
+              <OptionGroup title="TRUVO usage" options={roleOptions} value={profileForm.userRole || 'both'} onChange={(value) => updateProfileField('userRole', value)} />
+            </ScrollView>
+            <View style={styles.profileModalActions}>
+              <PrimaryButton label="Cancel" variant="outline" onPress={() => setEditProfileVisible(false)} style={styles.footerButton} />
+              <PrimaryButton label="Save profile" onPress={handleSaveProfile} loading={savingProfile} style={styles.footerButton} />
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScreenContainer>
   );
 }
+
+const contactOptions: { value: ContactPreference; label: string }[] = [
+  { value: 'email', label: 'Email' },
+  { value: 'phone', label: 'Phone' },
+  { value: 'whatsapp', label: 'WhatsApp' },
+];
+
+const roleOptions: { value: UserRolePreference; label: string }[] = [
+  { value: 'both', label: 'Both' },
+  { value: 'lender', label: 'Lender' },
+  { value: 'borrower', label: 'Borrower' },
+];
 
 function MetricTile({ label, value, highlight = false }: { label: string; value: string; highlight?: boolean }) {
   return (
@@ -263,6 +367,36 @@ function SettingsSection({ section }: { section: SettingSection }) {
               <Text style={styles.settingDescription}>{row.description}</Text>
             </View>
             <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
+          </Pressable>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+function OptionGroup<Value extends string>({
+  title,
+  options,
+  value,
+  onChange,
+}: {
+  title: string;
+  options: { value: Value; label: string }[];
+  value: Value;
+  onChange: (value: Value) => void;
+}) {
+  return (
+    <View style={styles.optionGroup}>
+      <Text style={styles.optionTitle}>{title}</Text>
+      <View style={styles.optionRow}>
+        {options.map((option) => (
+          <Pressable
+            key={option.value}
+            accessibilityRole="button"
+            onPress={() => onChange(option.value)}
+            style={[styles.optionButton, value === option.value && styles.optionButtonActive]}
+          >
+            <Text style={[styles.optionText, value === option.value && styles.optionTextActive]}>{option.label}</Text>
           </Pressable>
         ))}
       </View>
@@ -311,10 +445,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.xs,
   },
-  phone: {
+  contactText: {
     color: colors.textMuted,
     fontSize: typography.small,
     fontWeight: '600',
+  },
+  profileDetails: {
+    color: colors.textMuted,
+    fontSize: typography.caption,
+    fontWeight: '700',
   },
   headerMeta: {
     flexDirection: 'row',
@@ -496,6 +635,77 @@ const styles = StyleSheet.create({
     borderTopRightRadius: radii.lg,
     padding: spacing.xl,
     gap: spacing.md,
+  },
+  profileModalCard: {
+    maxHeight: '88%',
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radii.lg,
+    borderTopRightRadius: radii.lg,
+    padding: spacing.xl,
+    gap: spacing.lg,
+  },
+  profileModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+  },
+  profileModalTitleWrap: {
+    flex: 1,
+    gap: spacing.xs,
+  },
+  iconButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surfaceMuted,
+  },
+  profileForm: {
+    gap: spacing.md,
+    paddingBottom: spacing.xs,
+  },
+  optionGroup: {
+    gap: spacing.sm,
+  },
+  optionTitle: {
+    color: colors.text,
+    fontSize: typography.small,
+    fontWeight: '700',
+  },
+  optionRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  optionButton: {
+    minHeight: 40,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.md,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  optionButtonActive: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primary,
+  },
+  optionText: {
+    color: colors.textMuted,
+    fontSize: typography.small,
+    fontWeight: '900',
+  },
+  optionTextActive: {
+    color: '#FFFFFF',
+  },
+  profileModalActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  footerButton: {
+    flex: 1,
   },
   modalTitle: {
     color: colors.text,

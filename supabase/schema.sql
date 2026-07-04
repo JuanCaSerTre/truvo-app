@@ -31,6 +31,11 @@ create table public.profiles (
   name text not null default 'TRUVO user',
   phone text unique,
   email text unique,
+  country text,
+  currency text default 'USD' check (currency is null or currency ~ '^[A-Z]{3}$'),
+  timezone text,
+  contact_preference text not null default 'email' check (contact_preference in ('email', 'phone', 'whatsapp')),
+  user_role text not null default 'both' check (user_role in ('lender', 'borrower', 'both')),
   avatar_url text,
   subscription_status subscription_status not null default 'free',
   created_at timestamptz not null default now()

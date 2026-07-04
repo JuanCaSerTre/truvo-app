@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Alert, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { EmptyState } from '@/components/EmptyState';
 import { PrimaryButton } from '@/components/PrimaryButton';
@@ -23,18 +23,35 @@ export default function AgreementRequestScreen() {
   }
 
   const accept = () => {
-    updateAgreementStatus(agreement.id, 'active');
-    router.replace(`/agreement/${agreement.id}`);
+    try {
+      updateAgreementStatus(agreement.id, 'active');
+      router.replace(`/agreement/${agreement.id}`);
+    } catch (error) {
+      Alert.alert('Could not accept agreement', error instanceof Error ? error.message : 'Please try again.');
+    }
   };
 
   const reject = () => {
-    updateAgreementStatus(agreement.id, 'rejected');
-    router.replace('/(tabs)/agreements');
+    try {
+      updateAgreementStatus(agreement.id, 'rejected');
+      router.replace('/(tabs)/agreements');
+    } catch (error) {
+      Alert.alert('Could not reject agreement', error instanceof Error ? error.message : 'Please try again.');
+    }
   };
   const canRespond =
     agreement.borrowerId === currentUser.id ||
     agreement.borrowerEmail?.toLowerCase() === currentUser.email?.toLowerCase() ||
     agreement.borrowerPhone === currentUser.phone;
+  const isLender = agreement.lenderId === currentUser.id;
+  if (!canRespond && !isLender) {
+    return (
+      <ScreenContainer>
+        <EmptyState title="Request not available" message="This agreement request is not linked to your account." />
+      </ScreenContainer>
+    );
+  }
+
   const lender = users.find((user) => user.id === agreement.lenderId);
 
   return (

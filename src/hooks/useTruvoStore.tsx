@@ -8,6 +8,7 @@ import {
   users,
 } from '@/data/mockData';
 import { agreementService } from '@/services/agreementService';
+import { authService } from '@/services/authService';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import { subscriptionService } from '@/services/subscriptionService';
 import {
@@ -18,10 +19,12 @@ import {
   Contact,
   ContactInput,
   Notification,
+  NotificationSettings,
   Payment,
   PaymentInput,
   SubscriptionStatus,
   User,
+  UserProfileInput,
 } from '@/types/models';
 import { getConfirmedPayments, getRemainingBalance, shouldCompleteAgreement } from '@/utils/agreementRules';
 import { formatMoney } from '@/utils/money';
@@ -32,6 +35,7 @@ interface TruvoStore {
   agreements: Agreement[];
   payments: Payment[];
   notifications: Notification[];
+  notificationSettings: NotificationSettings;
   contacts: Contact[];
   timelineEvents: AgreementTimelineEvent[];
   syncing: boolean;
@@ -43,7 +47,11 @@ interface TruvoStore {
   confirmPayment: (paymentId: string) => void;
   rejectPayment: (paymentId: string) => void;
   markNotificationRead: (notificationId: string) => void;
+  archiveNotification: (notificationId: string) => void;
+  deleteNotification: (notificationId: string) => void;
+  updateNotificationSetting: (key: keyof NotificationSettings, enabled: boolean) => void;
   subscribe: (plan: 'monthly' | 'yearly') => Promise<void>;
+  updateCurrentUserProfile: (input: UserProfileInput) => Promise<User>;
   setUserFromAuth: (user: User) => void;
   clearUserSessionData: () => void;
 }
@@ -59,11 +67,23 @@ const id = () =>
 const now = () => new Date().toISOString();
 const normalizePhone = (value?: string) => value?.replace(/\D/g, '') || '';
 
+const defaultNotificationSettings: NotificationSettings = {
+  agreementRequests: true,
+  paymentConfirmations: true,
+  paymentReminders: true,
+  overduePayments: true,
+  marketingMessages: false,
+  productUpdates: true,
+  pushNotifications: true,
+  emailNotifications: false,
+};
+
 export function TruvoProvider({ children }: PropsWithChildren) {
   const [currentUser, setCurrentUser] = useState(seedCurrentUser);
   const [agreementState, setAgreementState] = useState(seedAgreements);
   const [paymentState, setPaymentState] = useState(seedPayments);
   const [notificationState, setNotificationState] = useState(seedNotifications);
+  const [notificationSettings, setNotificationSettings] = useState(defaultNotificationSettings);
   const [contactState, setContactState] = useState<Contact[]>([]);
   const [timelineState, setTimelineState] = useState(seedTimeline);
   const [syncing, setSyncing] = useState(false);
@@ -105,6 +125,26 @@ export function TruvoProvider({ children }: PropsWithChildren) {
     agreement.borrowerId === currentUser.id ||
     agreement.borrowerEmail?.toLowerCase() === currentUser.email?.toLowerCase() ||
     agreement.borrowerPhone === currentUser.phone;
+
+  const assertCanUpdateAgreementStatus = (agreement: Agreement, status: AgreementStatus) => {
+    const isLender = agreement.lenderId === currentUser.id;
+    const isBorrower = isCurrentUserBorrower(agreement);
+    if (status === 'completed') {
+      if (agreement.status !== 'active' || (!isLender && !isBorrower)) {
+        throw new Error('Only active agreements linked to your account can be completed.');
+      }
+      return;
+    }
+    if (agreement.status !== 'pending') {
+      throw new Error('Only pending agreements can be updated manually.');
+    }
+    if ((status === 'active' || status === 'rejected') && (!isBorrower || isLender)) {
+      throw new Error('Only the assigned borrower can accept or reject this agreement.');
+    }
+    if (status === 'cancelled' && !isLender) {
+      throw new Error('Only the lender can cancel this agreement.');
+    }
+  };
 
   const createAgreement = async (input: AgreementInput) => {
     const borrowerEmail = input.borrowerEmail?.trim().toLowerCase();
@@ -178,6 +218,7 @@ export function TruvoProvider({ children }: PropsWithChildren) {
   const updateAgreementStatus = (agreementId: string, status: AgreementStatus) => {
     const existingAgreement = agreementState.find((agreement) => agreement.id === agreementId);
     if (!existingAgreement) return;
+    assertCanUpdateAgreementStatus(existingAgreement, status);
     const persistedAgreement = existingAgreement
       ? {
           ...existingAgreement,
@@ -218,7 +259,14 @@ export function TruvoProvider({ children }: PropsWithChildren) {
     if (otherUserId) {
       addNotification({
         userId: otherUserId,
-        type: status === 'active' ? 'agreement_accepted' : status === 'rejected' ? 'agreement_rejected' : 'payment_reminder',
+        type:
+          status === 'active'
+            ? 'agreement_accepted'
+            : status === 'rejected'
+              ? 'agreement_rejected'
+              : status === 'cancelled'
+                ? 'agreement_cancelled'
+                : 'agreement_completed',
         title: status === 'active' ? 'Agreement accepted' : status === 'rejected' ? 'Agreement rejected' : `Agreement ${status}`,
         body:
           status === 'active'
@@ -261,7 +309,7 @@ export function TruvoProvider({ children }: PropsWithChildren) {
     });
     addNotification({
       userId: agreement.lenderId,
-      type: 'payment_registered',
+      type: 'payment_waiting_confirmation',
       title: 'Payment waiting for confirmation',
       body: `${currentUser.name} registered a ${formatMoney(input.amount)} payment for your confirmation.`,
       relatedAgreementId: input.agreementId,
@@ -343,9 +391,42 @@ export function TruvoProvider({ children }: PropsWithChildren) {
     void agreementService.markNotificationRead(notificationId);
   };
 
+  const archiveNotification = (notificationId: string) => {
+    setNotificationState((items) =>
+      items.map((notification) =>
+        notification.id === notificationId ? { ...notification, read: true, archivedAt: now() } : notification,
+      ),
+    );
+    void agreementService.markNotificationRead(notificationId);
+  };
+
+  const deleteNotification = (notificationId: string) => {
+    setNotificationState((items) => items.filter((notification) => notification.id !== notificationId));
+  };
+
+  const updateNotificationSetting = (key: keyof NotificationSettings, enabled: boolean) => {
+    setNotificationSettings((settings) => ({ ...settings, [key]: enabled }));
+  };
+
   const subscribe = async (plan: 'monthly' | 'yearly') => {
     const result = await subscriptionService.startStripeCheckout(plan);
     setCurrentUser((user) => ({ ...user, subscription_status: result.status as SubscriptionStatus }));
+  };
+
+  const updateCurrentUserProfile = async (input: UserProfileInput) => {
+    const updatedUser = isSupabaseConfigured
+      ? await authService.updateProfile(input)
+      : {
+          ...currentUser,
+          ...input,
+          name: input.name.trim(),
+          phone: input.phone?.trim() || '',
+          currency: input.currency?.trim().toUpperCase() || currentUser.currency,
+          country: input.country?.trim() || undefined,
+          timezone: input.timezone?.trim() || undefined,
+        };
+    setCurrentUser(updatedUser);
+    return updatedUser;
   };
 
   const clearUserSessionData = () => {
@@ -353,6 +434,7 @@ export function TruvoProvider({ children }: PropsWithChildren) {
     setAgreementState(seedAgreements);
     setPaymentState(seedPayments);
     setNotificationState(seedNotifications);
+    setNotificationSettings(defaultNotificationSettings);
     setContactState([]);
     setTimelineState(seedTimeline);
   };
@@ -363,6 +445,7 @@ export function TruvoProvider({ children }: PropsWithChildren) {
     agreements: agreementState,
     payments: paymentState,
     notifications: notificationState,
+    notificationSettings,
     contacts: contactState,
     timelineEvents: timelineState,
     syncing,
@@ -374,7 +457,11 @@ export function TruvoProvider({ children }: PropsWithChildren) {
     confirmPayment,
     rejectPayment,
     markNotificationRead,
+    archiveNotification,
+    deleteNotification,
+    updateNotificationSetting,
     subscribe,
+    updateCurrentUserProfile,
     setUserFromAuth: setCurrentUser,
     clearUserSessionData,
   };
