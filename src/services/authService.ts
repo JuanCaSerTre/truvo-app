@@ -39,6 +39,51 @@ const getOrCreateProfile = async (email: string): Promise<User> => {
 };
 
 export const authService = {
+  async signUpWithPassword(email: string, password: string): Promise<{ user?: User; needsEmailConfirmation: boolean }> {
+    if (!supabase) return { user: fallbackUser(email), needsEmailConfirmation: false };
+
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          name: email.split('@')[0] || 'TRUVO user',
+        },
+      },
+    });
+
+    if (error) throw error;
+    if (!data.session) return { needsEmailConfirmation: true };
+
+    return { user: await getOrCreateProfile(email), needsEmailConfirmation: false };
+  },
+
+  async signInWithPassword(email: string, password: string): Promise<User> {
+    if (!supabase) return fallbackUser(email);
+
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) throw error;
+    return getOrCreateProfile(email);
+  },
+
+  async resendSignupConfirmation(email: string): Promise<void> {
+    if (!supabase) return;
+    const { error } = await supabase.auth.resend({
+      type: 'signup',
+      email,
+    });
+    if (error) throw error;
+  },
+
+  async getCurrentUser(): Promise<User | null> {
+    if (!supabase) return null;
+    const { data, error } = await supabase.auth.getSession();
+    if (error) throw error;
+    const email = data.session?.user.email;
+    if (!email) return null;
+    return getOrCreateProfile(email);
+  },
+
   async sendOtp(email: string): Promise<{ requestId: string }> {
     if (supabase) {
       const { error } = await supabase.auth.signInWithOtp({
@@ -48,8 +93,6 @@ export const authService = {
         },
       });
       if (error) throw error;
-    } else {
-      console.log('Supabase is not configured yet. Using placeholder email OTP flow.', email);
     }
     return { requestId: `otp-${Date.now()}` };
   },

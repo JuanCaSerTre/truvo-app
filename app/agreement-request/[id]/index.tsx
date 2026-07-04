@@ -31,11 +31,14 @@ export default function AgreementRequestScreen() {
     updateAgreementStatus(agreement.id, 'rejected');
     router.replace('/(tabs)/agreements');
   };
+  const canRespond = agreement.borrowerId === currentUser.id || agreement.borrowerEmail?.toLowerCase() === currentUser.email?.toLowerCase();
 
   return (
     <ScreenContainer>
       <Text style={styles.title}>Agreement request</Text>
-      <Text style={styles.copy}>{currentUser.name} is viewing the borrower acceptance screen.</Text>
+      <Text style={styles.copy}>
+        {canRespond ? `${currentUser.name} can accept or reject this request.` : `This request is assigned to ${agreement.borrowerEmail || agreement.borrowerPhone}.`}
+      </Text>
       <View style={styles.card}>
         <Text style={styles.label}>Lender</Text>
         <Text style={styles.value}>Alex Morgan</Text>
@@ -49,8 +52,8 @@ export default function AgreementRequestScreen() {
         <SummaryCard label="Interest" value={formatMoney(agreement.interestAmount)} />
         <SummaryCard label="Total repayment" value={formatMoney(agreement.totalRepaymentAmount)} accent />
       </View>
-      <PrimaryButton label="Accept agreement" onPress={accept} disabled={agreement.status !== 'pending'} />
-      <PrimaryButton label="Reject agreement" variant="outline" onPress={reject} disabled={agreement.status !== 'pending'} />
+      <PrimaryButton label="Accept agreement" onPress={accept} disabled={agreement.status !== 'pending' || !canRespond} />
+      <PrimaryButton label="Reject agreement" variant="outline" onPress={reject} disabled={agreement.status !== 'pending' || !canRespond} />
     </ScreenContainer>
   );
 }

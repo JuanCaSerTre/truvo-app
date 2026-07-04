@@ -27,6 +27,7 @@ export interface Agreement {
   lenderId: string;
   borrowerId?: string;
   borrowerPhone: string;
+  borrowerEmail?: string;
   borrowerName?: string;
   principalAmount: number;
   interestRate?: number;
@@ -106,6 +107,7 @@ export interface AgreementTimelineEvent {
 
 export interface AgreementInput {
   borrowerPhone: string;
+  borrowerEmail?: string;
   borrowerName?: string;
   principalAmount: number;
   interestRate?: number;

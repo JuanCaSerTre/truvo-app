@@ -40,7 +40,8 @@ create table public.agreements (
   id uuid primary key default gen_random_uuid(),
   lender_id uuid not null references public.profiles(id) on delete cascade,
   borrower_id uuid references public.profiles(id) on delete set null,
-  borrower_phone text not null,
+  borrower_phone text,
+  borrower_email text,
   borrower_name text,
   principal_amount numeric(12, 2) not null check (principal_amount > 0),
   interest_rate numeric(7, 4),
@@ -143,7 +144,12 @@ with check (id = auth.uid());
 create policy "Agreement participants can read agreements"
 on public.agreements for select
 to authenticated
-using (lender_id = auth.uid() or borrower_id = auth.uid() or borrower_phone = (select phone from public.profiles where id = auth.uid()));
+using (
+  lender_id = auth.uid()
+  or borrower_id = auth.uid()
+  or borrower_phone = (select phone from public.profiles where id = auth.uid())
+  or borrower_email = (select email from public.profiles where id = auth.uid())
+);
 
 create policy "Lenders can create agreements"
 on public.agreements for insert
@@ -153,8 +159,18 @@ with check (lender_id = auth.uid());
 create policy "Participants can update agreements"
 on public.agreements for update
 to authenticated
-using (lender_id = auth.uid() or borrower_id = auth.uid() or borrower_phone = (select phone from public.profiles where id = auth.uid()))
-with check (lender_id = auth.uid() or borrower_id = auth.uid() or borrower_phone = (select phone from public.profiles where id = auth.uid()));
+using (
+  lender_id = auth.uid()
+  or borrower_id = auth.uid()
+  or borrower_phone = (select phone from public.profiles where id = auth.uid())
+  or borrower_email = (select email from public.profiles where id = auth.uid())
+)
+with check (
+  lender_id = auth.uid()
+  or borrower_id = auth.uid()
+  or borrower_phone = (select phone from public.profiles where id = auth.uid())
+  or borrower_email = (select email from public.profiles where id = auth.uid())
+);
 
 create policy "Participants can read schedules"
 on public.scheduled_payments for select
@@ -163,7 +179,12 @@ using (
   exists (
     select 1 from public.agreements a
     where a.id = scheduled_payments.agreement_id
-      and (a.lender_id = auth.uid() or a.borrower_id = auth.uid() or a.borrower_phone = (select phone from public.profiles where id = auth.uid()))
+      and (
+        a.lender_id = auth.uid()
+        or a.borrower_id = auth.uid()
+        or a.borrower_phone = (select phone from public.profiles where id = auth.uid())
+        or a.borrower_email = (select email from public.profiles where id = auth.uid())
+      )
   )
 );
 
@@ -225,7 +246,12 @@ using (
   exists (
     select 1 from public.agreements a
     where a.id = agreement_timeline_events.agreement_id
-      and (a.lender_id = auth.uid() or a.borrower_id = auth.uid() or a.borrower_phone = (select phone from public.profiles where id = auth.uid()))
+      and (
+        a.lender_id = auth.uid()
+        or a.borrower_id = auth.uid()
+        or a.borrower_phone = (select phone from public.profiles where id = auth.uid())
+        or a.borrower_email = (select email from public.profiles where id = auth.uid())
+      )
   )
 );
 

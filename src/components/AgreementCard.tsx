@@ -41,8 +41,9 @@ const readableStatus = (status: string) => status.replace(/_/g, ' ');
 
 export function AgreementCard({ agreement, currentUser, payments, onPress }: Props) {
   const isLender = agreement.lenderId === currentUser.id;
+  const isBorrower = agreement.borrowerId === currentUser.id || agreement.borrowerEmail?.toLowerCase() === currentUser.email?.toLowerCase();
   const theme = isLender ? receiveTheme : payTheme;
-  const person = isLender ? agreement.borrowerName || agreement.borrowerPhone : 'Lender';
+  const person = isLender ? agreement.borrowerName || agreement.borrowerEmail || agreement.borrowerPhone : 'Lender';
   const remaining = getRemainingBalance(agreement, payments);
   const progress = getProgress(agreement, payments);
   const confirmedCount = getConfirmedPayments(agreement.id, payments).length;
@@ -103,7 +104,7 @@ export function AgreementCard({ agreement, currentUser, payments, onPress }: Pro
       <Pressable
         onPress={onPress}
         accessibilityRole="button"
-        accessibilityLabel={`${theme.label}. ${person}. ${formatMoney(agreement.totalRepaymentAmount)} total. ${readableStatus(agreement.status)}.`}
+        accessibilityLabel={`${isBorrower ? 'You Pay' : theme.label}. ${person}. ${formatMoney(agreement.totalRepaymentAmount)} total. ${readableStatus(agreement.status)}.`}
         style={({ pressed }) => [
           styles.card,
           { backgroundColor: theme.background, borderLeftColor: theme.accent },

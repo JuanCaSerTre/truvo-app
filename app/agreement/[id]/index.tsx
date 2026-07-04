@@ -35,7 +35,7 @@ export default function AgreementDetailsScreen() {
   return (
     <ScreenContainer>
       <View style={styles.header}>
-        <Text style={styles.title}>{agreement.borrowerName || agreement.borrowerPhone}</Text>
+        <Text style={styles.title}>{agreement.borrowerName || agreement.borrowerEmail || agreement.borrowerPhone}</Text>
         <StatusBadge status={agreement.status} />
       </View>
       <View style={styles.totalCard}>
@@ -51,6 +51,7 @@ export default function AgreementDetailsScreen() {
         <Text style={styles.cardTitle}>Next payment</Text>
         <Text style={styles.cardText}>{agreement.nextPaymentDate ? formatDate(agreement.nextPaymentDate) : 'No payment scheduled'}</Text>
         <Text style={styles.cardText}>Due date {formatDate(agreement.dueDate)}</Text>
+        {agreement.borrowerEmail ? <Text style={styles.cardText}>Borrower {agreement.borrowerEmail}</Text> : null}
       </View>
       <PrimaryButton label="Register payment" onPress={() => router.push(`/register-payment/${agreement.id}`)} disabled={agreement.status !== 'active'} />
       {canEditAgreement(agreement) ? <PrimaryButton label="Edit agreement" variant="outline" onPress={() => router.push('/create')} /> : null}

@@ -1,4 +1,4 @@
-import React, { createContext, PropsWithChildren, useContext, useState } from 'react';
+import React, { createContext, PropsWithChildren, useCallback, useContext, useEffect, useState } from 'react';
 import {
   agreements as seedAgreements,
   currentUser as seedCurrentUser,
@@ -8,6 +8,7 @@ import {
   users,
 } from '@/data/mockData';
 import { agreementService } from '@/services/agreementService';
+import { isSupabaseConfigured } from '@/lib/supabase';
 import { subscriptionService } from '@/services/subscriptionService';
 import {
   Agreement,
@@ -30,7 +31,9 @@ interface TruvoStore {
   payments: Payment[];
   notifications: Notification[];
   timelineEvents: AgreementTimelineEvent[];
+  syncing: boolean;
   createAgreement: (input: AgreementInput) => Promise<Agreement>;
+  syncData: () => Promise<void>;
   updateAgreementStatus: (agreementId: string, status: AgreementStatus) => void;
   registerPayment: (input: PaymentInput) => Promise<Payment>;
   confirmPayment: (paymentId: string) => void;
@@ -56,6 +59,26 @@ export function TruvoProvider({ children }: PropsWithChildren) {
   const [paymentState, setPaymentState] = useState(seedPayments);
   const [notificationState, setNotificationState] = useState(seedNotifications);
   const [timelineState, setTimelineState] = useState(seedTimeline);
+  const [syncing, setSyncing] = useState(false);
+
+  const syncData = useCallback(async () => {
+    setSyncing(true);
+    try {
+      const synced = await agreementService.syncAgreements();
+      if (isSupabaseConfigured || synced.agreements.length || synced.payments.length) {
+        setAgreementState(synced.agreements);
+        setPaymentState(synced.payments);
+      }
+    } catch (error) {
+      console.warn('Unable to sync Supabase data', error);
+    } finally {
+      setSyncing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void syncData();
+  }, [currentUser.id, syncData]);
 
   const addTimeline = (event: Omit<AgreementTimelineEvent, 'id' | 'createdAt'>) => {
     setTimelineState((items) => [{ ...event, id: id(), createdAt: now() }, ...items]);
@@ -72,6 +95,7 @@ export function TruvoProvider({ children }: PropsWithChildren) {
       id: id(),
       lenderId: currentUser.id,
       borrowerPhone: input.borrowerPhone,
+      borrowerEmail: input.borrowerEmail,
       borrowerName: input.borrowerName,
       principalAmount: input.principalAmount,
       interestRate: input.interestRate,
@@ -95,7 +119,7 @@ export function TruvoProvider({ children }: PropsWithChildren) {
       actorId: currentUser.id,
       type: 'agreement_created',
       title: 'Agreement request sent',
-      description: `${formatMoney(input.totalRepaymentAmount)} requested from ${input.borrowerName || input.borrowerPhone}.`,
+      description: `${formatMoney(input.totalRepaymentAmount)} requested from ${input.borrowerName || input.borrowerEmail || input.borrowerPhone}.`,
     });
     addNotification({
       userId: currentUser.id,
@@ -113,6 +137,7 @@ export function TruvoProvider({ children }: PropsWithChildren) {
       ? {
           ...existingAgreement,
           status,
+          borrowerId: status === 'active' && !existingAgreement.borrowerId && existingAgreement.lenderId !== currentUser.id ? currentUser.id : existingAgreement.borrowerId,
           acceptedAt: status === 'active' ? now() : existingAgreement.acceptedAt,
           completedAt: status === 'completed' ? now() : existingAgreement.completedAt,
         }
@@ -124,9 +149,10 @@ export function TruvoProvider({ children }: PropsWithChildren) {
       items.map((agreement) =>
         agreement.id === agreementId
           ? {
-              ...agreement,
-              status,
-              acceptedAt: status === 'active' ? now() : agreement.acceptedAt,
+            ...agreement,
+            status,
+            borrowerId: status === 'active' && !agreement.borrowerId && agreement.lenderId !== currentUser.id ? currentUser.id : agreement.borrowerId,
+            acceptedAt: status === 'active' ? now() : agreement.acceptedAt,
               completedAt: status === 'completed' ? now() : agreement.completedAt,
             }
           : agreement,
@@ -263,7 +289,9 @@ export function TruvoProvider({ children }: PropsWithChildren) {
     payments: paymentState,
     notifications: notificationState,
     timelineEvents: timelineState,
+    syncing,
     createAgreement,
+    syncData,
     updateAgreementStatus,
     registerPayment,
     confirmPayment,

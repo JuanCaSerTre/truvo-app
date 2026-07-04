@@ -23,28 +23,28 @@ const filters: { value: Filter; icon: keyof typeof Ionicons.glyphMap; color: str
 
 export default function AgreementsScreen() {
   const [selected, setSelected] = useState<Filter>('All');
-  const { agreements, currentUser, payments } = useTruvoStore();
+  const { agreements, currentUser, payments, syncing } = useTruvoStore();
 
   const metrics = useMemo(() => {
     const receive = agreements
       .filter((agreement) => agreement.lenderId === currentUser.id)
       .reduce((sum, agreement) => sum + getRemainingBalance(agreement, payments), 0);
     const pay = agreements
-      .filter((agreement) => agreement.borrowerId === currentUser.id)
+      .filter((agreement) => agreement.borrowerId === currentUser.id || agreement.borrowerEmail?.toLowerCase() === currentUser.email?.toLowerCase())
       .reduce((sum, agreement) => sum + getRemainingBalance(agreement, payments), 0);
     return { receive, pay, net: receive - pay };
-  }, [agreements, currentUser.id, payments]);
+  }, [agreements, currentUser.email, currentUser.id, payments]);
 
   const filtered = useMemo(() => {
     return agreements.filter((agreement) => {
       if (selected === 'Receiving') return agreement.lenderId === currentUser.id;
-      if (selected === 'Paying') return agreement.borrowerId === currentUser.id;
+      if (selected === 'Paying') return agreement.borrowerId === currentUser.id || agreement.borrowerEmail?.toLowerCase() === currentUser.email?.toLowerCase();
       if (selected === 'Pending') return agreement.status === 'pending';
       if (selected === 'Completed') return agreement.status === 'completed';
       if (selected === 'Active') return agreement.status === 'active';
       return true;
     });
-  }, [agreements, currentUser.id, selected]);
+  }, [agreements, currentUser.email, currentUser.id, selected]);
 
   const empty = getEmptyState(selected);
 
@@ -53,6 +53,7 @@ export default function AgreementsScreen() {
       <View>
         <Text style={styles.title}>Agreements</Text>
         <Text style={styles.copy}>Know what is coming in, going out, and waiting for action.</Text>
+        {syncing ? <Text style={styles.syncing}>Syncing Supabase data...</Text> : null}
       </View>
 
       <View style={styles.summaryGrid}>
@@ -224,6 +225,12 @@ const styles = StyleSheet.create({
     fontSize: typography.body,
     lineHeight: 24,
     marginTop: spacing.xs,
+  },
+  syncing: {
+    color: colors.info,
+    fontSize: typography.small,
+    fontWeight: '800',
+    marginTop: spacing.sm,
   },
   summaryGrid: {
     flexDirection: 'row',

@@ -31,6 +31,7 @@ const isIsoDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
 export default function CreateAgreementScreen() {
   const { agreements, currentUser, createAgreement } = useTruvoStore();
   const [stepIndex, setStepIndex] = useState(0);
+  const [borrowerEmail, setBorrowerEmail] = useState('');
   const [borrowerPhone, setBorrowerPhone] = useState('');
   const [borrowerName, setBorrowerName] = useState('');
   const [principalAmount, setPrincipalAmount] = useState('');
@@ -85,7 +86,8 @@ export default function CreateAgreementScreen() {
     return [...calculation.paymentSchedule.slice(0, 3), calculation.paymentSchedule[calculation.paymentSchedule.length - 1]];
   }, [calculation.paymentSchedule, showFullSchedule]);
 
-  const borrowerIsValid = borrowerPhone.trim().length > 0;
+  const normalizedBorrowerEmail = borrowerEmail.trim().toLowerCase();
+  const borrowerIsValid = normalizedBorrowerEmail.includes('@');
   const amountIsValid = calculation.principalAmount > 0 && isIsoDate(startDate);
   const repaymentIsValid = calculation.isValid;
   const canContinue = stepIndex === 0 ? borrowerIsValid : stepIndex === 1 ? amountIsValid : stepIndex === 2 ? repaymentIsValid : calculation.isValid && borrowerIsValid;
@@ -110,7 +112,7 @@ export default function CreateAgreementScreen() {
       return;
     }
     if (!borrowerIsValid) {
-      Alert.alert('Add borrower phone number');
+      Alert.alert('Add borrower email');
       setStepIndex(0);
       return;
     }
@@ -122,6 +124,7 @@ export default function CreateAgreementScreen() {
     setLoading(true);
     const agreement = await createAgreement({
       borrowerPhone: borrowerPhone.trim(),
+      borrowerEmail: normalizedBorrowerEmail,
       borrowerName: borrowerName.trim() || undefined,
       principalAmount: calculation.principalAmount,
       interestRate: calculation.interestRate,
@@ -161,9 +164,10 @@ export default function CreateAgreementScreen() {
 
         {stepIndex === 0 ? (
           <WizardCard title="Borrower" subtitle="Start with the person who will receive the request.">
-            <FormInput label="Borrower phone number" value={borrowerPhone} onChangeText={setBorrowerPhone} keyboardType="phone-pad" placeholder="+1 555 0123" />
-            {attemptedStep && !borrowerPhone.trim() ? <Text style={styles.errorText}>Borrower phone number is required.</Text> : null}
+            <FormInput label="Borrower email" value={borrowerEmail} onChangeText={setBorrowerEmail} keyboardType="email-address" autoCapitalize="none" placeholder="borrower@example.com" />
+            {attemptedStep && !borrowerIsValid ? <Text style={styles.errorText}>Borrower email is required.</Text> : null}
             <FormInput label="Borrower name optional" value={borrowerName} onChangeText={setBorrowerName} placeholder="Name" />
+            <FormInput label="Borrower phone optional" value={borrowerPhone} onChangeText={setBorrowerPhone} keyboardType="phone-pad" placeholder="+1 555 0123" />
           </WizardCard>
         ) : null}
 
@@ -238,6 +242,7 @@ export default function CreateAgreementScreen() {
         {stepIndex === 3 ? (
           <ReviewStep
             borrowerPhone={borrowerPhone}
+            borrowerEmail={borrowerEmail}
             borrowerName={borrowerName}
             notes={notes}
             setNotes={setNotes}
@@ -278,6 +283,7 @@ function WizardCard({ title, subtitle, children }: { title: string; subtitle: st
 
 function ReviewStep({
   borrowerPhone,
+  borrowerEmail,
   borrowerName,
   notes,
   setNotes,
@@ -288,6 +294,7 @@ function ReviewStep({
   setShowFullSchedule,
 }: {
   borrowerPhone: string;
+  borrowerEmail: string;
   borrowerName: string;
   notes: string;
   setNotes: (value: string) => void;
@@ -301,7 +308,8 @@ function ReviewStep({
     <View style={styles.reviewStack}>
       <View style={styles.agreementSummary}>
         <Text style={styles.reviewEyebrow}>Agreement summary</Text>
-        <Text style={styles.reviewTitle}>{borrowerName.trim() || borrowerPhone.trim() || 'Borrower'}</Text>
+        <Text style={styles.reviewTitle}>{borrowerName.trim() || borrowerEmail.trim() || 'Borrower'}</Text>
+        <Text style={styles.reviewSubtitle}>{borrowerEmail.trim() || borrowerPhone.trim()}</Text>
         <Text style={styles.reviewTotal}>{formatMoney(calculation.totalRepaymentAmount)}</Text>
         <Text style={styles.reviewSubtitle}>
           {calculation.numberOfPayments || 0} {titleCase(paymentFrequency)} payment{calculation.numberOfPayments === 1 ? '' : 's'} of {formatMoney(calculation.paymentAmount)}
