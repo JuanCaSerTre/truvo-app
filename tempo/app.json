@@ -1,0 +1,13 @@
+{
+  "expo": {
+    "name": "truvo-app Tempo",
+    "slug": "truvo-app-tempo",
+    "platforms": [
+      "web"
+    ],
+    "web": {
+      "bundler": "metro"
+    },
+    "scheme": "tempo-sidecar"
+  }
+}

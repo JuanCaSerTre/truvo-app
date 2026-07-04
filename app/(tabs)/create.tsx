@@ -31,7 +31,7 @@ const isValidEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
 const normalizePhone = (value: string) => value.replace(/\D/g, '');
 
 export default function CreateAgreementScreen() {
-  const { agreements, contacts, currentUser, createAgreement } = useTruvoStore();
+  const { agreements, contacts, currentUser, createAgreement, sendAgreementInvite } = useTruvoStore();
   const [stepIndex, setStepIndex] = useState(0);
   const [borrowerEmail, setBorrowerEmail] = useState('');
   const [borrowerPhone, setBorrowerPhone] = useState('');
@@ -166,6 +166,17 @@ export default function CreateAgreementScreen() {
         notes: notes.trim() || undefined,
         paymentSchedule: calculation.paymentSchedule,
       });
+      try {
+        const invite = await sendAgreementInvite(agreement.id);
+        if (invite.status === 'skipped') {
+          Alert.alert('Agreement created', invite.message);
+        }
+      } catch (inviteError) {
+        Alert.alert(
+          'Agreement created, email not sent',
+          inviteError instanceof Error ? inviteError.message : 'Open the agreement details to resend the invite.',
+        );
+      }
       router.push(`/agreement/${agreement.id}`);
     } catch (error) {
       Alert.alert('Could not create agreement', error instanceof Error ? error.message : 'Please check the details and try again.');

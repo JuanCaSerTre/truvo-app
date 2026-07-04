@@ -1,0 +1,11 @@
+{
+  "scripts": {
+    "install": "cd .. && npm install && cd tempo && npm install",
+    "start": "npx expo start --web"
+  },
+  "apps": [
+    {
+      "appStart": "npx expo start --web --port ${PORT}"
+    }
+  ]
+}

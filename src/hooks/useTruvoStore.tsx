@@ -18,6 +18,7 @@ import {
   AgreementTimelineEvent,
   Contact,
   ContactInput,
+  InviteEmailResult,
   Notification,
   NotificationSettings,
   Payment,
@@ -40,6 +41,7 @@ interface TruvoStore {
   timelineEvents: AgreementTimelineEvent[];
   syncing: boolean;
   createAgreement: (input: AgreementInput) => Promise<Agreement>;
+  sendAgreementInvite: (agreementId: string) => Promise<InviteEmailResult>;
   createContact: (input: ContactInput) => Promise<Contact>;
   syncData: () => Promise<void>;
   updateAgreementStatus: (agreementId: string, status: AgreementStatus) => void;
@@ -213,6 +215,10 @@ export function TruvoProvider({ children }: PropsWithChildren) {
       return items.map((item, index) => (index === existingIndex ? contact : item));
     });
     return contact;
+  };
+
+  const sendAgreementInvite = async (agreementId: string) => {
+    return agreementService.sendAgreementInvite(agreementId);
   };
 
   const updateAgreementStatus = (agreementId: string, status: AgreementStatus) => {
@@ -450,6 +456,7 @@ export function TruvoProvider({ children }: PropsWithChildren) {
     timelineEvents: timelineState,
     syncing,
     createAgreement,
+    sendAgreementInvite,
     createContact,
     syncData,
     updateAgreementStatus,

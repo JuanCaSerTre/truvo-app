@@ -1,4 +1,4 @@
-import { Agreement, Contact, ContactInput, Notification, Payment, PaymentInput } from '@/types/models';
+import { Agreement, Contact, ContactInput, InviteEmailResult, Notification, Payment, PaymentInput } from '@/types/models';
 import { supabase } from '@/lib/supabase';
 
 type AgreementRow = {
@@ -230,6 +230,23 @@ export const agreementService = {
     const { error } = await supabase.from('agreements').update(toAgreementRow(agreement)).eq('id', agreement.id);
     if (error) throw error;
     return agreement;
+  },
+
+  async sendAgreementInvite(agreementId: string): Promise<InviteEmailResult> {
+    if (!supabase) {
+      return {
+        status: 'skipped',
+        message: 'Supabase is not configured, so no email invite was sent.',
+      };
+    }
+
+    const { data, error } = await supabase.functions.invoke<InviteEmailResult>('send-agreement-invite', {
+      body: { agreementId },
+    });
+
+    if (error) throw error;
+    if (!data) throw new Error('The invite function did not return a response.');
+    return data;
   },
 
   async registerPayment(input: PaymentInput): Promise<PaymentInput> {

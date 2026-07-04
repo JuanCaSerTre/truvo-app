@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Alert, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { EmptyState } from '@/components/EmptyState';
@@ -15,7 +15,8 @@ import { formatDate, formatMoney } from '@/utils/money';
 
 export default function AgreementDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { agreements, currentUser, payments, timelineEvents, updateAgreementStatus } = useTruvoStore();
+  const { agreements, currentUser, payments, timelineEvents, sendAgreementInvite, updateAgreementStatus } = useTruvoStore();
+  const [sendingInvite, setSendingInvite] = useState(false);
   const agreement = agreements.find((item) => item.id === id);
 
   if (!agreement) {
@@ -46,6 +47,17 @@ export default function AgreementDetailsScreen() {
   const timeline = timelineEvents.filter((event) => event.agreementId === agreement.id);
   const canRespondToPending = agreement.status === 'pending' && isBorrower && !isLender;
   const canManagePending = agreement.status === 'pending' && isLender;
+  const resendInvite = async () => {
+    try {
+      setSendingInvite(true);
+      const result = await sendAgreementInvite(agreement.id);
+      Alert.alert(result.status === 'sent' ? 'Invite sent' : 'Invite not sent', result.message);
+    } catch (error) {
+      Alert.alert('Could not send invite', error instanceof Error ? error.message : 'Please try again.');
+    } finally {
+      setSendingInvite(false);
+    }
+  };
   const updateStatus = (status: 'active' | 'rejected' | 'cancelled') => {
     try {
       updateAgreementStatus(agreement.id, status);
@@ -111,6 +123,7 @@ export default function AgreementDetailsScreen() {
       </View>
       {agreement.status === 'active' && isBorrower ? <PrimaryButton label="Register payment" onPress={() => router.push(`/register-payment/${agreement.id}`)} /> : null}
       {canEditAgreement(agreement) && isLender ? <PrimaryButton label="Edit agreement" variant="outline" onPress={() => router.push('/create')} /> : null}
+      {canManagePending ? <PrimaryButton label="Resend email invite" onPress={resendInvite} loading={sendingInvite} /> : null}
       {canManagePending ? <PrimaryButton label="Cancel pending agreement" variant="danger" onPress={() => updateStatus('cancelled')} /> : null}
       {canManagePending ? <PrimaryButton label="Preview borrower request" variant="outline" onPress={() => router.push(`/agreement-request/${agreement.id}`)} /> : null}
 
