@@ -1,0 +1,294 @@
+import React, { createContext, PropsWithChildren, useContext, useState } from 'react';
+import {
+  agreements as seedAgreements,
+  currentUser as seedCurrentUser,
+  notifications as seedNotifications,
+  payments as seedPayments,
+  timelineEvents as seedTimeline,
+  users,
+} from '@/data/mockData';
+import { agreementService } from '@/services/agreementService';
+import { subscriptionService } from '@/services/subscriptionService';
+import {
+  Agreement,
+  AgreementInput,
+  AgreementStatus,
+  AgreementTimelineEvent,
+  Notification,
+  Payment,
+  PaymentInput,
+  SubscriptionStatus,
+  User,
+} from '@/types/models';
+import { getConfirmedPayments, getRemainingBalance, shouldCompleteAgreement } from '@/utils/agreementRules';
+import { formatMoney } from '@/utils/money';
+
+interface TruvoStore {
+  currentUser: User;
+  users: User[];
+  agreements: Agreement[];
+  payments: Payment[];
+  notifications: Notification[];
+  timelineEvents: AgreementTimelineEvent[];
+  createAgreement: (input: AgreementInput) => Promise<Agreement>;
+  updateAgreementStatus: (agreementId: string, status: AgreementStatus) => void;
+  registerPayment: (input: PaymentInput) => Promise<Payment>;
+  confirmPayment: (paymentId: string) => void;
+  rejectPayment: (paymentId: string) => void;
+  markNotificationRead: (notificationId: string) => void;
+  subscribe: (plan: 'monthly' | 'yearly') => Promise<void>;
+  setUserFromAuth: (user: User) => void;
+}
+
+const StoreContext = createContext<TruvoStore | undefined>(undefined);
+
+const id = () =>
+  'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (char) => {
+    const random = Math.floor(Math.random() * 16);
+    const value = char === 'x' ? random : (random & 0x3) | 0x8;
+    return value.toString(16);
+  });
+const now = () => new Date().toISOString();
+
+export function TruvoProvider({ children }: PropsWithChildren) {
+  const [currentUser, setCurrentUser] = useState(seedCurrentUser);
+  const [agreementState, setAgreementState] = useState(seedAgreements);
+  const [paymentState, setPaymentState] = useState(seedPayments);
+  const [notificationState, setNotificationState] = useState(seedNotifications);
+  const [timelineState, setTimelineState] = useState(seedTimeline);
+
+  const addTimeline = (event: Omit<AgreementTimelineEvent, 'id' | 'createdAt'>) => {
+    setTimelineState((items) => [{ ...event, id: id(), createdAt: now() }, ...items]);
+  };
+
+  const addNotification = (notification: Omit<Notification, 'id' | 'createdAt' | 'read'>) => {
+    setNotificationState((items) => [{ ...notification, id: id(), createdAt: now(), read: false }, ...items]);
+  };
+
+  const createAgreement = async (input: AgreementInput) => {
+    const interestAmount = Math.max(input.totalRepaymentAmount - input.principalAmount, 0);
+    const nextScheduledPayment = input.paymentSchedule?.[0];
+    const agreement: Agreement = {
+      id: id(),
+      lenderId: currentUser.id,
+      borrowerPhone: input.borrowerPhone,
+      borrowerName: input.borrowerName,
+      principalAmount: input.principalAmount,
+      interestRate: input.interestRate,
+      interestAmount,
+      totalRepaymentAmount: input.totalRepaymentAmount,
+      numberOfPayments: input.numberOfPayments,
+      paymentFrequency: input.paymentFrequency,
+      startDate: input.startDate,
+      dueDate: input.dueDate,
+      notes: input.notes,
+      status: 'pending',
+      createdAt: now(),
+      nextPaymentDate: nextScheduledPayment?.due_date || input.startDate,
+      paymentSchedule: input.paymentSchedule,
+    };
+    await agreementService.createAgreement(agreement);
+
+    setAgreementState((items) => [agreement, ...items]);
+    addTimeline({
+      agreementId: agreement.id,
+      actorId: currentUser.id,
+      type: 'agreement_created',
+      title: 'Agreement request sent',
+      description: `${formatMoney(input.totalRepaymentAmount)} requested from ${input.borrowerName || input.borrowerPhone}.`,
+    });
+    addNotification({
+      userId: currentUser.id,
+      type: 'new_agreement_request',
+      title: 'Agreement request created',
+      body: 'The borrower must accept before this agreement becomes active.',
+      relatedAgreementId: agreement.id,
+    });
+    return agreement;
+  };
+
+  const updateAgreementStatus = (agreementId: string, status: AgreementStatus) => {
+    const existingAgreement = agreementState.find((agreement) => agreement.id === agreementId);
+    const persistedAgreement = existingAgreement
+      ? {
+          ...existingAgreement,
+          status,
+          acceptedAt: status === 'active' ? now() : existingAgreement.acceptedAt,
+          completedAt: status === 'completed' ? now() : existingAgreement.completedAt,
+        }
+      : undefined;
+    if (persistedAgreement) {
+      void agreementService.updateAgreement(persistedAgreement);
+    }
+    setAgreementState((items) =>
+      items.map((agreement) =>
+        agreement.id === agreementId
+          ? {
+              ...agreement,
+              status,
+              acceptedAt: status === 'active' ? now() : agreement.acceptedAt,
+              completedAt: status === 'completed' ? now() : agreement.completedAt,
+            }
+          : agreement,
+      ),
+    );
+    const type =
+      status === 'active'
+        ? 'agreement_accepted'
+        : status === 'rejected'
+          ? 'agreement_rejected'
+          : status === 'cancelled'
+            ? 'agreement_cancelled'
+            : 'agreement_completed';
+    addTimeline({ agreementId, actorId: currentUser.id, type, title: `Agreement ${status}` });
+    addNotification({
+      userId: currentUser.id,
+      type: status === 'active' ? 'agreement_accepted' : status === 'rejected' ? 'agreement_rejected' : 'payment_reminder',
+      title: `Agreement ${status}`,
+      body: 'The agreement status has been updated.',
+      relatedAgreementId: agreementId,
+    });
+  };
+
+  const registerPayment = async (input: PaymentInput) => {
+    await agreementService.registerPayment(input);
+    const agreement = agreementState.find((item) => item.id === input.agreementId);
+    const payerId = agreement?.borrowerId || currentUser.id;
+    const receiverId = agreement?.lenderId || currentUser.id;
+    const payment: Payment = {
+      id: id(),
+      agreementId: input.agreementId,
+      amount: input.amount,
+      paymentDate: input.paymentDate,
+      method: input.method,
+      notes: input.notes,
+      status: 'pending_confirmation',
+      payerId,
+      receiverId,
+      createdAt: now(),
+    };
+    await agreementService.createPayment(payment);
+    setPaymentState((items) => [payment, ...items]);
+    addTimeline({
+      agreementId: input.agreementId,
+      actorId: currentUser.id,
+      type: 'payment_registered',
+      title: 'Payment registered',
+      description: `${formatMoney(input.amount)} is pending confirmation.`,
+    });
+    addNotification({
+      userId: currentUser.id,
+      type: 'payment_registered',
+      title: 'Payment awaiting confirmation',
+      body: `${formatMoney(input.amount)} will apply to the balance after confirmation.`,
+      relatedAgreementId: input.agreementId,
+      relatedPaymentId: payment.id,
+    });
+    return payment;
+  };
+
+  const confirmPayment = (paymentId: string) => {
+    let updatedPayments: Payment[] = [];
+    setPaymentState((items) => {
+      updatedPayments = items.map((payment) =>
+        payment.id === paymentId ? { ...payment, status: 'confirmed', confirmedAt: now() } : payment,
+      );
+      return updatedPayments;
+    });
+
+    const payment = paymentState.find((item) => item.id === paymentId);
+    if (!payment) return;
+    void agreementService.updatePayment({ ...payment, status: 'confirmed', confirmedAt: now() });
+    addTimeline({
+      agreementId: payment.agreementId,
+      actorId: currentUser.id,
+      type: 'payment_confirmed',
+      title: 'Payment confirmed',
+      description: `${formatMoney(payment.amount)} was applied to the balance.`,
+    });
+    addNotification({
+      userId: currentUser.id,
+      type: 'payment_confirmed',
+      title: 'Payment confirmed',
+      body: `${formatMoney(payment.amount)} has reduced the remaining balance.`,
+      relatedAgreementId: payment.agreementId,
+      relatedPaymentId: payment.id,
+    });
+
+    const agreement = agreementState.find((item) => item.id === payment.agreementId);
+    if (agreement && shouldCompleteAgreement(agreement, updatedPayments)) {
+      updateAgreementStatus(agreement.id, 'completed');
+    }
+  };
+
+  const rejectPayment = (paymentId: string) => {
+    setPaymentState((items) =>
+      items.map((payment) => (payment.id === paymentId ? { ...payment, status: 'rejected', rejectedAt: now() } : payment)),
+    );
+    const payment = paymentState.find((item) => item.id === paymentId);
+    if (!payment) return;
+    void agreementService.updatePayment({ ...payment, status: 'rejected', rejectedAt: now() });
+    addTimeline({
+      agreementId: payment.agreementId,
+      actorId: currentUser.id,
+      type: 'payment_rejected',
+      title: 'Payment rejected',
+      description: `${formatMoney(payment.amount)} was not applied to the balance.`,
+    });
+    addNotification({
+      userId: currentUser.id,
+      type: 'payment_rejected',
+      title: 'Payment rejected',
+      body: 'The payment remains outside the confirmed balance.',
+      relatedAgreementId: payment.agreementId,
+      relatedPaymentId: payment.id,
+    });
+  };
+
+  const markNotificationRead = (notificationId: string) => {
+    setNotificationState((items) =>
+      items.map((notification) => (notification.id === notificationId ? { ...notification, read: true } : notification)),
+    );
+  };
+
+  const subscribe = async (plan: 'monthly' | 'yearly') => {
+    const result = await subscriptionService.startStripeCheckout(plan);
+    setCurrentUser((user) => ({ ...user, subscription_status: result.status as SubscriptionStatus }));
+  };
+
+  const value = {
+    currentUser,
+    users,
+    agreements: agreementState,
+    payments: paymentState,
+    notifications: notificationState,
+    timelineEvents: timelineState,
+    createAgreement,
+    updateAgreementStatus,
+    registerPayment,
+    confirmPayment,
+    rejectPayment,
+    markNotificationRead,
+    subscribe,
+    setUserFromAuth: setCurrentUser,
+  };
+
+  return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
+}
+
+export const useTruvoStore = () => {
+  const context = useContext(StoreContext);
+  if (!context) {
+    throw new Error('useTruvoStore must be used inside TruvoProvider');
+  }
+  return context;
+};
+
+export const useAgreementMetrics = (agreement: Agreement) => {
+  const { payments } = useTruvoStore();
+  const confirmedPayments = getConfirmedPayments(agreement.id, payments);
+  const totalPaid = confirmedPayments.reduce((sum, payment) => sum + payment.amount, 0);
+  const remainingBalance = getRemainingBalance(agreement, payments);
+  const progress = agreement.totalRepaymentAmount > 0 ? totalPaid / agreement.totalRepaymentAmount : 0;
+  return { confirmedPayments, totalPaid, remainingBalance, progress: Math.min(progress, 1) };
+};

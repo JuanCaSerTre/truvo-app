@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "TRUVO",
+    "slug": "truvo",
+    "scheme": "truvo",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "backgroundColor": "#0F172A"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.truvo.app"
+    },
+    "android": {
+      "package": "com.truvo.app"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-asset",
+      "expo-sqlite"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
