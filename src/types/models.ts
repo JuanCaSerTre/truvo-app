@@ -10,6 +10,20 @@ export interface User {
   createdAt: string;
 }
 
+export interface Contact {
+  id: string;
+  ownerId: string;
+  contactEmail: string;
+  contactName?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface ContactInput {
+  contactEmail: string;
+  contactName?: string;
+}
+
 export type AgreementStatus = 'pending' | 'active' | 'completed' | 'rejected' | 'cancelled';
 export type PaymentFrequency = 'once' | 'weekly' | 'biweekly' | 'monthly';
 export type AgreementRole = 'lender' | 'borrower';

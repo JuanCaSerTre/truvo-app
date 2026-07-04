@@ -4,6 +4,17 @@ import { supabase } from '@/lib/supabase';
 
 const fallbackUser = (email: string): User => ({ ...currentUser, email });
 
+const clearLocalAuthStorage = () => {
+  const storage = globalThis.localStorage;
+  if (!storage) return;
+
+  const authKeys = Array.from({ length: storage.length }, (_, index) => storage.key(index)).filter(
+    (key): key is string => Boolean(key && (key.startsWith('sb-') || key.includes('supabase.auth'))),
+  );
+
+  authKeys.forEach((key) => storage.removeItem(key));
+};
+
 const getOrCreateProfile = async (email: string): Promise<User> => {
   if (!supabase) return fallbackUser(email);
   const { data: authData, error: userError } = await supabase.auth.getUser();
@@ -109,9 +120,13 @@ export const authService = {
   },
 
   async signOut(): Promise<void> {
-    if (supabase) {
-      const { error } = await supabase.auth.signOut();
-      if (error) throw error;
+    try {
+      if (supabase) {
+        const { error } = await supabase.auth.signOut();
+        if (error) throw error;
+      }
+    } finally {
+      clearLocalAuthStorage();
     }
   },
 };

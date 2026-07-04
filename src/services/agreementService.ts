@@ -1,4 +1,4 @@
-import { Agreement, Payment, PaymentInput } from '@/types/models';
+import { Agreement, Contact, ContactInput, Notification, Payment, PaymentInput } from '@/types/models';
 import { supabase } from '@/lib/supabase';
 
 type AgreementRow = {
@@ -47,6 +47,27 @@ type PaymentRow = {
   rejected_at: string | null;
 };
 
+type NotificationRow = {
+  id: string;
+  user_id: string;
+  type: Notification['type'];
+  title: string;
+  body: string;
+  read: boolean;
+  created_at: string;
+  related_agreement_id: string | null;
+  related_payment_id: string | null;
+};
+
+type ContactRow = {
+  id: string;
+  owner_id: string;
+  contact_email: string;
+  contact_name: string | null;
+  created_at: string;
+  updated_at: string | null;
+};
+
 const asNumber = (value: number | string | null | undefined) => Number(value || 0);
 
 const toAgreementRow = (agreement: Agreement) => ({
@@ -85,6 +106,27 @@ const toPaymentRow = (payment: Payment) => ({
   created_at: payment.createdAt,
   confirmed_at: payment.confirmedAt,
   rejected_at: payment.rejectedAt,
+});
+
+const toNotificationRow = (notification: Notification) => ({
+  id: notification.id,
+  user_id: notification.userId,
+  type: notification.type,
+  title: notification.title,
+  body: notification.body,
+  read: notification.read,
+  created_at: notification.createdAt,
+  related_agreement_id: notification.relatedAgreementId,
+  related_payment_id: notification.relatedPaymentId,
+});
+
+const toContactRow = (contact: Contact) => ({
+  id: contact.id,
+  owner_id: contact.ownerId,
+  contact_email: contact.contactEmail,
+  contact_name: contact.contactName,
+  created_at: contact.createdAt,
+  updated_at: contact.updatedAt,
 });
 
 const fromAgreementRow = (row: AgreementRow): Agreement => ({
@@ -131,6 +173,27 @@ const fromPaymentRow = (row: PaymentRow): Payment => ({
   createdAt: row.created_at,
   confirmedAt: row.confirmed_at || undefined,
   rejectedAt: row.rejected_at || undefined,
+});
+
+const fromNotificationRow = (row: NotificationRow): Notification => ({
+  id: row.id,
+  userId: row.user_id,
+  type: row.type,
+  title: row.title,
+  body: row.body,
+  read: row.read,
+  createdAt: row.created_at,
+  relatedAgreementId: row.related_agreement_id || undefined,
+  relatedPaymentId: row.related_payment_id || undefined,
+});
+
+const fromContactRow = (row: ContactRow): Contact => ({
+  id: row.id,
+  ownerId: row.owner_id,
+  contactEmail: row.contact_email,
+  contactName: row.contact_name || undefined,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at || undefined,
 });
 
 export const agreementService = {
@@ -185,25 +248,77 @@ export const agreementService = {
     return payment;
   },
 
-  async syncAgreements(): Promise<{ agreements: Agreement[]; payments: Payment[] }> {
+  async createNotification(notification: Notification): Promise<Notification> {
+    if (!supabase) return notification;
+    const { error } = await supabase.from('notifications').insert(toNotificationRow(notification));
+    if (error) throw error;
+    return notification;
+  },
+
+  async markNotificationRead(notificationId: string): Promise<void> {
+    if (!supabase) return;
+    const { error } = await supabase.from('notifications').update({ read: true }).eq('id', notificationId);
+    if (error) throw error;
+  },
+
+  async upsertContact(contact: Contact): Promise<Contact> {
+    if (!supabase) return contact;
+    const { data, error } = await supabase
+      .from('contacts')
+      .upsert(toContactRow(contact), { onConflict: 'owner_id,contact_email' })
+      .select('*')
+      .single();
+    if (error) throw error;
+    return fromContactRow(data as ContactRow);
+  },
+
+  async createContact(input: ContactInput, ownerId: string): Promise<Contact> {
+    const now = new Date().toISOString();
+    const contact: Contact = {
+      id: 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (char) => {
+        const random = Math.floor(Math.random() * 16);
+        const value = char === 'x' ? random : (random & 0x3) | 0x8;
+        return value.toString(16);
+      }),
+      ownerId,
+      contactEmail: input.contactEmail.trim().toLowerCase(),
+      contactName: input.contactName?.trim() || undefined,
+      createdAt: now,
+      updatedAt: now,
+    };
+    return this.upsertContact(contact);
+  },
+
+  async syncAgreements(): Promise<{ agreements: Agreement[]; payments: Payment[]; notifications: Notification[]; contacts: Contact[] }> {
     if (!supabase) {
       console.log('Supabase is not configured yet. Using seed data.');
-      return { agreements: [], payments: [] };
+      return { agreements: [], payments: [], notifications: [], contacts: [] };
     }
-    const [{ data: agreementRows, error: agreementError }, { data: paymentRows, error: paymentError }] = await Promise.all([
+    const [
+      { data: agreementRows, error: agreementError },
+      { data: paymentRows, error: paymentError },
+      { data: notificationRows, error: notificationError },
+      { data: contactRows, error: contactError },
+    ] = await Promise.all([
       supabase
         .from('agreements')
         .select('*, scheduled_payments(payment_number, due_date, amount, status)')
         .order('created_at', { ascending: false }),
       supabase.from('payments').select('*').order('created_at', { ascending: false }),
+      supabase.from('notifications').select('*').order('created_at', { ascending: false }),
+      supabase.from('contacts').select('*').order('contact_name', { ascending: true }),
     ]);
 
     if (agreementError) throw agreementError;
     if (paymentError) throw paymentError;
+    if (notificationError) throw notificationError;
+    if (contactError && (contactError as { code?: string }).code !== '42P01') throw contactError;
 
     return {
       agreements: ((agreementRows || []) as AgreementRow[]).map(fromAgreementRow),
       payments: ((paymentRows || []) as PaymentRow[]).map(fromPaymentRow),
+      notifications: ((notificationRows || []) as NotificationRow[]).map(fromNotificationRow),
+      contacts: ((contactRows || []) as ContactRow[]).map(fromContactRow),
     };
   },
 };

@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Alert, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { EmptyState } from '@/components/EmptyState';
 import { PaymentCard } from '@/components/PaymentCard';
@@ -15,7 +15,7 @@ import { formatDate, formatMoney } from '@/utils/money';
 
 export default function AgreementDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { agreements, payments, timelineEvents, updateAgreementStatus } = useTruvoStore();
+  const { agreements, currentUser, payments, timelineEvents, updateAgreementStatus } = useTruvoStore();
   const agreement = agreements.find((item) => item.id === id);
 
   if (!agreement) {
@@ -31,6 +31,44 @@ export default function AgreementDetailsScreen() {
   const progress = agreement.totalRepaymentAmount > 0 ? Math.min(totalPaid / agreement.totalRepaymentAmount, 1) : 0;
   const agreementPayments = payments.filter((payment) => payment.agreementId === agreement.id);
   const timeline = timelineEvents.filter((event) => event.agreementId === agreement.id);
+  const isLender = agreement.lenderId === currentUser.id;
+  const isBorrower = agreement.borrowerId === currentUser.id || agreement.borrowerEmail?.toLowerCase() === currentUser.email?.toLowerCase();
+  const canRespondToPending = agreement.status === 'pending' && isBorrower && !isLender;
+  const canManagePending = agreement.status === 'pending' && isLender;
+  const accept = () => updateAgreementStatus(agreement.id, 'active');
+  const reject = () => {
+    updateAgreementStatus(agreement.id, 'rejected');
+    router.replace('/(tabs)/agreements');
+  };
+
+  if (canRespondToPending) {
+    return (
+      <ScreenContainer>
+        <View style={styles.header}>
+          <Text style={styles.title}>Review agreement</Text>
+          <StatusBadge status={agreement.status} />
+        </View>
+        <Text style={styles.cardText}>This agreement was sent to {currentUser.email}. Accept only if the terms match what you agreed with the lender.</Text>
+        <View style={styles.totalCard}>
+          <Text style={styles.totalLabel}>Total to repay</Text>
+          <Text style={styles.total}>{formatMoney(agreement.totalRepaymentAmount)}</Text>
+        </View>
+        <View style={styles.summaryGrid}>
+          <SummaryCard label="Principal" value={formatMoney(agreement.principalAmount)} />
+          <SummaryCard label="Interest" value={formatMoney(agreement.interestAmount)} />
+          <SummaryCard label="Payments" value={`${agreement.numberOfPayments} ${agreement.paymentFrequency}`} />
+          <SummaryCard label="Due date" value={formatDate(agreement.dueDate)} accent />
+        </View>
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Before accepting</Text>
+          <Text style={styles.cardText}>If something is wrong, reject this request and ask the lender to create a corrected agreement. Change requests that require lender confirmation will be added as a dedicated workflow.</Text>
+        </View>
+        <PrimaryButton label="Accept agreement" onPress={accept} />
+        <PrimaryButton label="Reject agreement" variant="outline" onPress={reject} />
+        <PrimaryButton label="Request changes" variant="outline" onPress={() => Alert.alert('Request changes', 'For now, reject this agreement and ask the lender to send updated terms.')} />
+      </ScreenContainer>
+    );
+  }
 
   return (
     <ScreenContainer>
@@ -53,10 +91,10 @@ export default function AgreementDetailsScreen() {
         <Text style={styles.cardText}>Due date {formatDate(agreement.dueDate)}</Text>
         {agreement.borrowerEmail ? <Text style={styles.cardText}>Borrower {agreement.borrowerEmail}</Text> : null}
       </View>
-      <PrimaryButton label="Register payment" onPress={() => router.push(`/register-payment/${agreement.id}`)} disabled={agreement.status !== 'active'} />
-      {canEditAgreement(agreement) ? <PrimaryButton label="Edit agreement" variant="outline" onPress={() => router.push('/create')} /> : null}
-      {agreement.status === 'pending' ? <PrimaryButton label="Cancel pending agreement" variant="danger" onPress={() => updateAgreementStatus(agreement.id, 'cancelled')} /> : null}
-      {agreement.status === 'pending' ? <PrimaryButton label="Preview borrower request" variant="outline" onPress={() => router.push(`/agreement-request/${agreement.id}`)} /> : null}
+      {agreement.status === 'active' ? <PrimaryButton label="Register payment" onPress={() => router.push(`/register-payment/${agreement.id}`)} /> : null}
+      {canEditAgreement(agreement) && isLender ? <PrimaryButton label="Edit agreement" variant="outline" onPress={() => router.push('/create')} /> : null}
+      {canManagePending ? <PrimaryButton label="Cancel pending agreement" variant="danger" onPress={() => updateAgreementStatus(agreement.id, 'cancelled')} /> : null}
+      {canManagePending ? <PrimaryButton label="Preview borrower request" variant="outline" onPress={() => router.push(`/agreement-request/${agreement.id}`)} /> : null}
 
       <Text style={styles.sectionTitle}>Payment history</Text>
       {agreementPayments.length === 0 ? <EmptyState title="No payments yet" message="Registered payments will appear here." /> : agreementPayments.map((payment) => <PaymentCard key={payment.id} payment={payment} />)}

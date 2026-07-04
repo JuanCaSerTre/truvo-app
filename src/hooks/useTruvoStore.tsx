@@ -15,6 +15,8 @@ import {
   AgreementInput,
   AgreementStatus,
   AgreementTimelineEvent,
+  Contact,
+  ContactInput,
   Notification,
   Payment,
   PaymentInput,
@@ -30,9 +32,11 @@ interface TruvoStore {
   agreements: Agreement[];
   payments: Payment[];
   notifications: Notification[];
+  contacts: Contact[];
   timelineEvents: AgreementTimelineEvent[];
   syncing: boolean;
   createAgreement: (input: AgreementInput) => Promise<Agreement>;
+  createContact: (input: ContactInput) => Promise<Contact>;
   syncData: () => Promise<void>;
   updateAgreementStatus: (agreementId: string, status: AgreementStatus) => void;
   registerPayment: (input: PaymentInput) => Promise<Payment>;
@@ -41,6 +45,7 @@ interface TruvoStore {
   markNotificationRead: (notificationId: string) => void;
   subscribe: (plan: 'monthly' | 'yearly') => Promise<void>;
   setUserFromAuth: (user: User) => void;
+  clearUserSessionData: () => void;
 }
 
 const StoreContext = createContext<TruvoStore | undefined>(undefined);
@@ -58,6 +63,7 @@ export function TruvoProvider({ children }: PropsWithChildren) {
   const [agreementState, setAgreementState] = useState(seedAgreements);
   const [paymentState, setPaymentState] = useState(seedPayments);
   const [notificationState, setNotificationState] = useState(seedNotifications);
+  const [contactState, setContactState] = useState<Contact[]>([]);
   const [timelineState, setTimelineState] = useState(seedTimeline);
   const [syncing, setSyncing] = useState(false);
 
@@ -68,6 +74,8 @@ export function TruvoProvider({ children }: PropsWithChildren) {
       if (isSupabaseConfigured || synced.agreements.length || synced.payments.length) {
         setAgreementState(synced.agreements);
         setPaymentState(synced.payments);
+        setNotificationState(synced.notifications);
+        setContactState(synced.contacts);
       }
     } catch (error) {
       console.warn('Unable to sync Supabase data', error);
@@ -85,7 +93,9 @@ export function TruvoProvider({ children }: PropsWithChildren) {
   };
 
   const addNotification = (notification: Omit<Notification, 'id' | 'createdAt' | 'read'>) => {
-    setNotificationState((items) => [{ ...notification, id: id(), createdAt: now(), read: false }, ...items]);
+    const nextNotification: Notification = { ...notification, id: id(), createdAt: now(), read: false };
+    setNotificationState((items) => [nextNotification, ...items]);
+    void agreementService.createNotification(nextNotification).catch((error) => console.warn('Unable to persist notification', error));
   };
 
   const createAgreement = async (input: AgreementInput) => {
@@ -112,6 +122,12 @@ export function TruvoProvider({ children }: PropsWithChildren) {
       paymentSchedule: input.paymentSchedule,
     };
     await agreementService.createAgreement(agreement);
+    if (input.borrowerEmail) {
+      void createContact({
+        contactEmail: input.borrowerEmail,
+        contactName: input.borrowerName,
+      }).catch((error) => console.warn('Unable to save borrower contact', error));
+    }
 
     setAgreementState((items) => [agreement, ...items]);
     addTimeline({
@@ -125,14 +141,25 @@ export function TruvoProvider({ children }: PropsWithChildren) {
       userId: currentUser.id,
       type: 'new_agreement_request',
       title: 'Agreement request created',
-      body: 'The borrower must accept before this agreement becomes active.',
+      body: `${input.borrowerName || input.borrowerEmail || 'Borrower'} must accept before this agreement becomes active.`,
       relatedAgreementId: agreement.id,
     });
     return agreement;
   };
 
+  const createContact = async (input: ContactInput) => {
+    const contact = await agreementService.createContact(input, currentUser.id);
+    setContactState((items) => {
+      const existingIndex = items.findIndex((item) => item.contactEmail.toLowerCase() === contact.contactEmail.toLowerCase());
+      if (existingIndex === -1) return [contact, ...items];
+      return items.map((item, index) => (index === existingIndex ? contact : item));
+    });
+    return contact;
+  };
+
   const updateAgreementStatus = (agreementId: string, status: AgreementStatus) => {
     const existingAgreement = agreementState.find((agreement) => agreement.id === agreementId);
+    if (!existingAgreement) return;
     const persistedAgreement = existingAgreement
       ? {
           ...existingAgreement,
@@ -167,13 +194,23 @@ export function TruvoProvider({ children }: PropsWithChildren) {
             ? 'agreement_cancelled'
             : 'agreement_completed';
     addTimeline({ agreementId, actorId: currentUser.id, type, title: `Agreement ${status}` });
-    addNotification({
-      userId: currentUser.id,
-      type: status === 'active' ? 'agreement_accepted' : status === 'rejected' ? 'agreement_rejected' : 'payment_reminder',
-      title: `Agreement ${status}`,
-      body: 'The agreement status has been updated.',
-      relatedAgreementId: agreementId,
-    });
+
+    const actorIsLender = existingAgreement.lenderId === currentUser.id;
+    const otherUserId = actorIsLender ? existingAgreement.borrowerId : existingAgreement.lenderId;
+    if (otherUserId) {
+      addNotification({
+        userId: otherUserId,
+        type: status === 'active' ? 'agreement_accepted' : status === 'rejected' ? 'agreement_rejected' : 'payment_reminder',
+        title: status === 'active' ? 'Agreement accepted' : status === 'rejected' ? 'Agreement rejected' : `Agreement ${status}`,
+        body:
+          status === 'active'
+            ? `${currentUser.name} accepted the agreement.`
+            : status === 'rejected'
+              ? `${currentUser.name} rejected the agreement.`
+              : 'The agreement status has been updated.',
+        relatedAgreementId: agreementId,
+      });
+    }
   };
 
   const registerPayment = async (input: PaymentInput) => {
@@ -275,11 +312,21 @@ export function TruvoProvider({ children }: PropsWithChildren) {
     setNotificationState((items) =>
       items.map((notification) => (notification.id === notificationId ? { ...notification, read: true } : notification)),
     );
+    void agreementService.markNotificationRead(notificationId);
   };
 
   const subscribe = async (plan: 'monthly' | 'yearly') => {
     const result = await subscriptionService.startStripeCheckout(plan);
     setCurrentUser((user) => ({ ...user, subscription_status: result.status as SubscriptionStatus }));
+  };
+
+  const clearUserSessionData = () => {
+    setCurrentUser(seedCurrentUser);
+    setAgreementState(seedAgreements);
+    setPaymentState(seedPayments);
+    setNotificationState(seedNotifications);
+    setContactState([]);
+    setTimelineState(seedTimeline);
   };
 
   const value = {
@@ -288,9 +335,11 @@ export function TruvoProvider({ children }: PropsWithChildren) {
     agreements: agreementState,
     payments: paymentState,
     notifications: notificationState,
+    contacts: contactState,
     timelineEvents: timelineState,
     syncing,
     createAgreement,
+    createContact,
     syncData,
     updateAgreementStatus,
     registerPayment,
@@ -299,6 +348,7 @@ export function TruvoProvider({ children }: PropsWithChildren) {
     markNotificationRead,
     subscribe,
     setUserFromAuth: setCurrentUser,
+    clearUserSessionData,
   };
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;

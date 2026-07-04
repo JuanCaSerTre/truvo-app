@@ -45,7 +45,7 @@ export default function HomeDashboard() {
       <View style={styles.quickActions}>
         <PrimaryButton label="New agreement" onPress={() => router.push('/create')} />
         <PrimaryButton label="Register payment" variant="outline" onPress={() => router.push('/(tabs)/payments')} />
-        <PrimaryButton label="Invite contact" variant="secondary" onPress={() => {}} />
+        <PrimaryButton label="Invite contact" variant="secondary" onPress={() => router.push('/invite-contact')} />
       </View>
 
       <View style={styles.sectionHeader}>

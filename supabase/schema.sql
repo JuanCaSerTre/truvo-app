@@ -96,6 +96,16 @@ create table public.notifications (
   related_payment_id uuid references public.payments(id) on delete cascade
 );
 
+create table public.contacts (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid not null references public.profiles(id) on delete cascade,
+  contact_email text not null,
+  contact_name text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz,
+  unique (owner_id, contact_email)
+);
+
 create table public.agreement_timeline_events (
   id uuid primary key default gen_random_uuid(),
   agreement_id uuid not null references public.agreements(id) on delete cascade,
@@ -112,6 +122,7 @@ alter table public.scheduled_payments enable row level security;
 alter table public.payments enable row level security;
 alter table public.notifications enable row level security;
 alter table public.agreement_timeline_events enable row level security;
+alter table public.contacts enable row level security;
 
 create policy "Profiles are readable by agreement participants"
 on public.profiles for select
@@ -238,6 +249,27 @@ create policy "Users can create own notifications"
 on public.notifications for insert
 to authenticated
 with check (user_id = auth.uid());
+
+create policy "Users can read own contacts"
+on public.contacts for select
+to authenticated
+using (owner_id = auth.uid());
+
+create policy "Users can create own contacts"
+on public.contacts for insert
+to authenticated
+with check (owner_id = auth.uid());
+
+create policy "Users can update own contacts"
+on public.contacts for update
+to authenticated
+using (owner_id = auth.uid())
+with check (owner_id = auth.uid());
+
+create policy "Users can delete own contacts"
+on public.contacts for delete
+to authenticated
+using (owner_id = auth.uid());
 
 create policy "Participants can read timeline"
 on public.agreement_timeline_events for select

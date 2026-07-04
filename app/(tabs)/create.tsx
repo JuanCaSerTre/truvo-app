@@ -29,7 +29,7 @@ const titleCase = (value: string) => value.replace('_', ' ').replace(/\b\w/g, (l
 const isIsoDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
 
 export default function CreateAgreementScreen() {
-  const { agreements, currentUser, createAgreement } = useTruvoStore();
+  const { agreements, contacts, currentUser, createAgreement } = useTruvoStore();
   const [stepIndex, setStepIndex] = useState(0);
   const [borrowerEmail, setBorrowerEmail] = useState('');
   const [borrowerPhone, setBorrowerPhone] = useState('');
@@ -85,6 +85,16 @@ export default function CreateAgreementScreen() {
     if (showFullSchedule || calculation.paymentSchedule.length <= 4) return calculation.paymentSchedule;
     return [...calculation.paymentSchedule.slice(0, 3), calculation.paymentSchedule[calculation.paymentSchedule.length - 1]];
   }, [calculation.paymentSchedule, showFullSchedule]);
+
+  const contactSuggestions = useMemo(() => {
+    const query = borrowerEmail.trim().toLowerCase();
+    return contacts
+      .filter((contact) => {
+        if (!query) return true;
+        return contact.contactEmail.toLowerCase().includes(query) || contact.contactName?.toLowerCase().includes(query);
+      })
+      .slice(0, 4);
+  }, [borrowerEmail, contacts]);
 
   const normalizedBorrowerEmail = borrowerEmail.trim().toLowerCase();
   const borrowerIsValid = normalizedBorrowerEmail.includes('@');
@@ -166,6 +176,24 @@ export default function CreateAgreementScreen() {
           <WizardCard title="Borrower" subtitle="Start with the person who will receive the request.">
             <FormInput label="Borrower email" value={borrowerEmail} onChangeText={setBorrowerEmail} keyboardType="email-address" autoCapitalize="none" placeholder="borrower@example.com" />
             {attemptedStep && !borrowerIsValid ? <Text style={styles.errorText}>Borrower email is required.</Text> : null}
+            {contactSuggestions.length ? (
+              <View style={styles.suggestions}>
+                <Text style={styles.fieldLabel}>Saved contacts</Text>
+                <View style={styles.chipRow}>
+                  {contactSuggestions.map((contact) => (
+                    <Chip
+                      key={contact.id}
+                      label={contact.contactName || contact.contactEmail}
+                      active={borrowerEmail.trim().toLowerCase() === contact.contactEmail.toLowerCase()}
+                      onPress={() => {
+                        setBorrowerEmail(contact.contactEmail);
+                        setBorrowerName(contact.contactName || '');
+                      }}
+                    />
+                  ))}
+                </View>
+              </View>
+            ) : null}
             <FormInput label="Borrower name optional" value={borrowerName} onChangeText={setBorrowerName} placeholder="Name" />
             <FormInput label="Borrower phone optional" value={borrowerPhone} onChangeText={setBorrowerPhone} keyboardType="phone-pad" placeholder="+1 555 0123" />
           </WizardCard>
@@ -500,6 +528,7 @@ const styles = StyleSheet.create({
   cardTitle: { color: colors.text, fontSize: typography.h2, fontWeight: '900' },
   cardSubtitle: { color: colors.textMuted, fontSize: typography.body, lineHeight: 24 },
   fieldLabel: { color: colors.text, fontSize: typography.small, fontWeight: '900' },
+  suggestions: { gap: spacing.sm },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   chip: {
     minHeight: 44,
