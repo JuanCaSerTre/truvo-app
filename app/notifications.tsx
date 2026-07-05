@@ -142,7 +142,12 @@ export default function NotificationsScreen() {
         </Pressable>
       </View>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.filterScroller}
+        contentContainerStyle={styles.filters}
+      >
         {notificationFilters.map((filter) => {
           const selected = selectedFilter === filter.id;
           return (
@@ -243,14 +248,21 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
+  filterScroller: {
+    flexGrow: 0,
+    flexShrink: 0,
+    maxHeight: 26,
+  },
   filters: {
-    gap: 6,
-    paddingRight: spacing.lg,
+    gap: 4,
+    alignItems: 'center',
+    paddingRight: spacing.sm,
   },
   filterChip: {
-    minHeight: 30,
+    height: 22,
+    minHeight: 22,
     borderRadius: radii.pill,
-    paddingHorizontal: spacing.md,
+    paddingHorizontal: 8,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.surface,
@@ -263,7 +275,8 @@ const styles = StyleSheet.create({
   },
   filterText: {
     color: colors.textMuted,
-    fontSize: typography.caption,
+    fontSize: 9,
+    lineHeight: 11,
     fontWeight: '900',
   },
   filterTextSelected: {
