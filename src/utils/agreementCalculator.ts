@@ -43,6 +43,7 @@ const parseDateOnly = (value?: string) => {
   if (!year || !month || !day) return undefined;
   const date = new Date(year, month - 1, day);
   if (Number.isNaN(date.getTime())) return undefined;
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return undefined;
   return date;
 };
 

@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
-import { router } from 'expo-router';
+import { Alert, Linking, StyleSheet, Text, View } from 'react-native';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { ScreenContainer } from '@/components/ScreenContainer';
 import { colors, radii, spacing, typography } from '@/constants/theme';
@@ -11,10 +10,19 @@ export default function PremiumSubscriptionScreen() {
   const [loadingPlan, setLoadingPlan] = useState<'monthly' | 'yearly' | null>(null);
 
   const choose = async (plan: 'monthly' | 'yearly') => {
-    setLoadingPlan(plan);
-    await subscribe(plan);
-    setLoadingPlan(null);
-    router.back();
+    try {
+      setLoadingPlan(plan);
+      const result = await subscribe(plan);
+      if (result.checkoutUrl) {
+        await Linking.openURL(result.checkoutUrl);
+        return;
+      }
+      Alert.alert('Checkout unavailable', result.message || 'Premium checkout is not configured yet.');
+    } catch (error) {
+      Alert.alert('Could not start checkout', error instanceof Error ? error.message : 'Please try again.');
+    } finally {
+      setLoadingPlan(null);
+    }
   };
 
   return (
@@ -33,7 +41,7 @@ export default function PremiumSubscriptionScreen() {
         <PrimaryButton label="Choose yearly" variant="secondary" onPress={() => choose('yearly')} loading={loadingPlan === 'yearly'} />
       </View>
       <Text style={styles.status}>Current status: {currentUser.subscription_status.replace('_', ' ')}</Text>
-      <Text style={styles.note}>Stripe checkout and customer portal functions are placeholders in this build.</Text>
+      <Text style={styles.note}>Premium activates only after a real checkout confirmation.</Text>
     </ScreenContainer>
   );
 }

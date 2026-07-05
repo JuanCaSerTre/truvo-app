@@ -24,6 +24,7 @@ const filters: { value: Filter; icon: keyof typeof Ionicons.glyphMap; color: str
 export default function AgreementsScreen() {
   const [selected, setSelected] = useState<Filter>('All');
   const { agreements, currentUser, payments, syncing } = useTruvoStore();
+  const currency = currentUser.currency || 'USD';
 
   const userAgreements = useMemo(
     () =>
@@ -80,9 +81,9 @@ export default function AgreementsScreen() {
       </View>
 
       <View style={styles.summaryGrid}>
-        <SummaryTile label="You will receive" value={formatMoney(metrics.receive)} icon="arrow-down-circle-outline" tone="receive" />
-        <SummaryTile label="You owe" value={formatMoney(metrics.pay)} icon="arrow-up-circle-outline" tone="pay" />
-        <SummaryTile label="Net position" value={`${metrics.net >= 0 ? '+' : ''}${formatMoney(metrics.net)}`} icon="analytics-outline" tone="net" wide />
+        <SummaryTile label="You will receive" value={formatMoney(metrics.receive, currency)} icon="arrow-down-circle-outline" tone="receive" />
+        <SummaryTile label="You owe" value={formatMoney(metrics.pay, currency)} icon="arrow-up-circle-outline" tone="pay" />
+        <SummaryTile label="Net position" value={`${metrics.net >= 0 ? '+' : ''}${formatMoney(metrics.net, currency)}`} icon="analytics-outline" tone="net" wide />
       </View>
 
       <View style={styles.filterRow}>
@@ -115,6 +116,7 @@ export default function AgreementsScreen() {
               agreement={agreement}
               currentUser={currentUser}
               payments={payments}
+              currency={currency}
               onPress={() => router.push(`/agreement/${agreement.id}`)}
             />
           ))}

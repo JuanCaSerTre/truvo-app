@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Alert, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { EmptyState } from '@/components/EmptyState';
@@ -12,6 +12,7 @@ import { formatDate, formatMoney } from '@/utils/money';
 export default function PaymentConfirmationScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { payments, agreements, currentUser, confirmPayment, rejectPayment } = useTruvoStore();
+  const [paymentAction, setPaymentAction] = useState<'confirm' | 'reject' | null>(null);
   const payment = payments.find((item) => item.id === id);
   const agreement = payment ? agreements.find((item) => item.id === payment.agreementId) : undefined;
 
@@ -24,22 +25,29 @@ export default function PaymentConfirmationScreen() {
   }
 
   const canConfirmPayment = payment.receiverId === currentUser.id;
+  const currency = currentUser.currency || 'USD';
 
-  const confirm = () => {
+  const confirm = async () => {
     try {
-      confirmPayment(payment.id);
+      setPaymentAction('confirm');
+      await confirmPayment(payment.id);
       router.replace(`/agreement/${agreement.id}`);
     } catch (error) {
       Alert.alert('Could not confirm payment', error instanceof Error ? error.message : 'Please try again.');
+    } finally {
+      setPaymentAction(null);
     }
   };
 
-  const reject = () => {
+  const reject = async () => {
     try {
-      rejectPayment(payment.id);
+      setPaymentAction('reject');
+      await rejectPayment(payment.id);
       router.replace(`/agreement/${agreement.id}`);
     } catch (error) {
       Alert.alert('Could not reject payment', error instanceof Error ? error.message : 'Please try again.');
+    } finally {
+      setPaymentAction(null);
     }
   };
 
@@ -48,7 +56,7 @@ export default function PaymentConfirmationScreen() {
       <Text style={styles.title}>Confirm payment</Text>
       <View style={styles.card}>
         <Text style={styles.label}>Payment amount</Text>
-        <Text style={styles.amount}>{formatMoney(payment.amount)}</Text>
+        <Text style={styles.amount}>{formatMoney(payment.amount, currency)}</Text>
         <Text style={styles.label}>Date</Text>
         <Text style={styles.value}>{formatDate(payment.paymentDate)}</Text>
         <Text style={styles.label}>Agreement</Text>
@@ -60,8 +68,8 @@ export default function PaymentConfirmationScreen() {
           ? 'Confirmed payments reduce the remaining balance. Pending payments do not.'
           : 'Only the payment receiver can confirm or reject this payment.'}
       </Text>
-      <PrimaryButton label="Confirm payment" onPress={confirm} disabled={payment.status !== 'pending_confirmation' || !canConfirmPayment} />
-      <PrimaryButton label="Reject payment" variant="outline" onPress={reject} disabled={payment.status !== 'pending_confirmation' || !canConfirmPayment} />
+      <PrimaryButton label="Confirm payment" onPress={confirm} loading={paymentAction === 'confirm'} disabled={payment.status !== 'pending_confirmation' || !canConfirmPayment || Boolean(paymentAction)} />
+      <PrimaryButton label="Reject payment" variant="outline" onPress={reject} loading={paymentAction === 'reject'} disabled={payment.status !== 'pending_confirmation' || !canConfirmPayment || Boolean(paymentAction)} />
     </ScreenContainer>
   );
 }

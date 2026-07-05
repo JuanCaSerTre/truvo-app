@@ -10,6 +10,7 @@ interface Props {
   agreement: Agreement;
   currentUser: User;
   payments: Payment[];
+  currency?: string;
   onPress: () => void;
 }
 
@@ -39,7 +40,7 @@ const statusTheme = (status: Agreement['status']) => {
 
 const readableStatus = (status: string) => status.replace(/_/g, ' ');
 
-export function AgreementCard({ agreement, currentUser, payments, onPress }: Props) {
+export function AgreementCard({ agreement, currentUser, payments, currency = currentUser.currency || 'USD', onPress }: Props) {
   const isLender = agreement.lenderId === currentUser.id;
   const isBorrower = agreement.borrowerId === currentUser.id || agreement.borrowerEmail?.toLowerCase() === currentUser.email?.toLowerCase();
   const theme = isLender ? receiveTheme : payTheme;
@@ -104,7 +105,7 @@ export function AgreementCard({ agreement, currentUser, payments, onPress }: Pro
       <Pressable
         onPress={onPress}
         accessibilityRole="button"
-        accessibilityLabel={`${isBorrower ? 'You Pay' : theme.label}. ${person}. ${formatMoney(agreement.totalRepaymentAmount)} total. ${readableStatus(agreement.status)}.`}
+        accessibilityLabel={`${isBorrower ? 'You Pay' : theme.label}. ${person}. ${formatMoney(agreement.totalRepaymentAmount, currency)} total. ${readableStatus(agreement.status)}.`}
         style={({ pressed }) => [
           styles.card,
           { backgroundColor: theme.background, borderLeftColor: theme.accent },
@@ -128,8 +129,8 @@ export function AgreementCard({ agreement, currentUser, payments, onPress }: Pro
             </View>
             <Text style={styles.person} numberOfLines={1}>{person}</Text>
           </View>
-          <Text style={[styles.amount, { color: theme.amount }]}>{formatMoney(agreement.totalRepaymentAmount)}</Text>
-          <Text style={styles.remaining}>{formatMoney(remaining)} remaining</Text>
+          <Text style={[styles.amount, { color: theme.amount }]}>{formatMoney(agreement.totalRepaymentAmount, currency)}</Text>
+          <Text style={styles.remaining}>{formatMoney(remaining, currency)} remaining</Text>
         </View>
 
         <View style={styles.progressTrack}>

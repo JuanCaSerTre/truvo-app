@@ -17,6 +17,7 @@ export default function AgreementDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { agreements, currentUser, payments, timelineEvents, sendAgreementInvite, updateAgreementStatus } = useTruvoStore();
   const [sendingInvite, setSendingInvite] = useState(false);
+  const [statusAction, setStatusAction] = useState<'active' | 'rejected' | 'cancelled' | null>(null);
   const agreement = agreements.find((item) => item.id === id);
 
   if (!agreement) {
@@ -42,6 +43,7 @@ export default function AgreementDetailsScreen() {
 
   const totalPaid = getTotalPaid(agreement.id, payments);
   const remainingBalance = getRemainingBalance(agreement, payments);
+  const currency = currentUser.currency || 'USD';
   const progress = agreement.totalRepaymentAmount > 0 ? Math.min(totalPaid / agreement.totalRepaymentAmount, 1) : 0;
   const agreementPayments = payments.filter((payment) => payment.agreementId === agreement.id);
   const timeline = timelineEvents.filter((event) => event.agreementId === agreement.id);
@@ -58,12 +60,15 @@ export default function AgreementDetailsScreen() {
       setSendingInvite(false);
     }
   };
-  const updateStatus = (status: 'active' | 'rejected' | 'cancelled') => {
+  const updateStatus = async (status: 'active' | 'rejected' | 'cancelled') => {
     try {
-      updateAgreementStatus(agreement.id, status);
+      setStatusAction(status);
+      await updateAgreementStatus(agreement.id, status);
       if (status === 'rejected') router.replace('/(tabs)/agreements');
     } catch (error) {
       Alert.alert('Could not update agreement', error instanceof Error ? error.message : 'Please try again.');
+    } finally {
+      setStatusAction(null);
     }
   };
   const accept = () => updateStatus('active');
@@ -81,11 +86,11 @@ export default function AgreementDetailsScreen() {
         <Text style={styles.cardText}>This agreement was sent to {currentUser.email}. Accept only if the terms match what you agreed with the lender.</Text>
         <View style={styles.totalCard}>
           <Text style={styles.totalLabel}>Total to repay</Text>
-          <Text style={styles.total}>{formatMoney(agreement.totalRepaymentAmount)}</Text>
+          <Text style={styles.total}>{formatMoney(agreement.totalRepaymentAmount, currency)}</Text>
         </View>
         <View style={styles.summaryGrid}>
-          <SummaryCard label="Principal" value={formatMoney(agreement.principalAmount)} />
-          <SummaryCard label="Interest" value={formatMoney(agreement.interestAmount)} />
+          <SummaryCard label="Principal" value={formatMoney(agreement.principalAmount, currency)} />
+          <SummaryCard label="Interest" value={formatMoney(agreement.interestAmount, currency)} />
           <SummaryCard label="Payments" value={`${agreement.numberOfPayments} ${agreement.paymentFrequency}`} />
           <SummaryCard label="Due date" value={formatDate(agreement.dueDate)} accent />
         </View>
@@ -93,8 +98,8 @@ export default function AgreementDetailsScreen() {
           <Text style={styles.cardTitle}>Before accepting</Text>
           <Text style={styles.cardText}>If something is wrong, reject this request and ask the lender to create a corrected agreement. Change requests that require lender confirmation will be added as a dedicated workflow.</Text>
         </View>
-        <PrimaryButton label="Accept agreement" onPress={accept} />
-        <PrimaryButton label="Reject agreement" variant="outline" onPress={reject} />
+        <PrimaryButton label="Accept agreement" onPress={accept} loading={statusAction === 'active'} disabled={Boolean(statusAction)} />
+        <PrimaryButton label="Reject agreement" variant="outline" onPress={reject} loading={statusAction === 'rejected'} disabled={Boolean(statusAction)} />
         <PrimaryButton label="Request changes" variant="outline" onPress={() => Alert.alert('Request changes', 'For now, reject this agreement and ask the lender to send updated terms.')} />
       </ScreenContainer>
     );
@@ -108,12 +113,12 @@ export default function AgreementDetailsScreen() {
       </View>
       <View style={styles.totalCard}>
         <Text style={styles.totalLabel}>Total agreement</Text>
-        <Text style={styles.total}>{formatMoney(agreement.totalRepaymentAmount)}</Text>
+        <Text style={styles.total}>{formatMoney(agreement.totalRepaymentAmount, currency)}</Text>
         <ProgressBar value={progress} />
       </View>
       <View style={styles.summaryGrid}>
-        <SummaryCard label="Total paid" value={formatMoney(totalPaid)} />
-        <SummaryCard label="Remaining" value={formatMoney(remainingBalance)} accent />
+        <SummaryCard label="Total paid" value={formatMoney(totalPaid, currency)} />
+        <SummaryCard label="Remaining" value={formatMoney(remainingBalance, currency)} accent />
       </View>
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Next payment</Text>
@@ -124,11 +129,11 @@ export default function AgreementDetailsScreen() {
       {agreement.status === 'active' && isBorrower ? <PrimaryButton label="Register payment" onPress={() => router.push(`/register-payment/${agreement.id}`)} /> : null}
       {canEditAgreement(agreement) && isLender ? <PrimaryButton label="Edit agreement" variant="outline" onPress={() => router.push('/create')} /> : null}
       {canManagePending ? <PrimaryButton label="Resend email invite" onPress={resendInvite} loading={sendingInvite} /> : null}
-      {canManagePending ? <PrimaryButton label="Cancel pending agreement" variant="danger" onPress={() => updateStatus('cancelled')} /> : null}
+      {canManagePending ? <PrimaryButton label="Cancel pending agreement" variant="danger" onPress={() => updateStatus('cancelled')} loading={statusAction === 'cancelled'} disabled={Boolean(statusAction)} /> : null}
       {canManagePending ? <PrimaryButton label="Preview borrower request" variant="outline" onPress={() => router.push(`/agreement-request/${agreement.id}`)} /> : null}
 
       <Text style={styles.sectionTitle}>Payment history</Text>
-      {agreementPayments.length === 0 ? <EmptyState title="No payments yet" message="Registered payments will appear here." /> : agreementPayments.map((payment) => <PaymentCard key={payment.id} payment={payment} />)}
+      {agreementPayments.length === 0 ? <EmptyState title="No payments yet" message="Registered payments will appear here." /> : agreementPayments.map((payment) => <PaymentCard key={payment.id} payment={payment} currency={currency} />)}
 
       <Text style={styles.sectionTitle}>Timeline</Text>
       {timeline.map((event) => (

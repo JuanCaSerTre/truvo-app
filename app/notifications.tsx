@@ -88,9 +88,9 @@ export default function NotificationsScreen() {
         {
           label: 'Confirm',
           variant: 'secondary',
-          onPress: () => {
+          onPress: async () => {
             try {
-              confirmPayment(notification.relatedPaymentId || '');
+              await confirmPayment(notification.relatedPaymentId || '');
               markNotificationRead(notification.id);
             } catch (error) {
               Alert.alert('Could not confirm payment', error instanceof Error ? error.message : 'Please try again.');
@@ -100,9 +100,9 @@ export default function NotificationsScreen() {
         {
           label: 'Reject',
           variant: 'outline',
-          onPress: () => {
+          onPress: async () => {
             try {
-              rejectPayment(notification.relatedPaymentId || '');
+              await rejectPayment(notification.relatedPaymentId || '');
               markNotificationRead(notification.id);
             } catch (error) {
               Alert.alert('Could not reject payment', error instanceof Error ? error.message : 'Please try again.');
@@ -149,6 +149,7 @@ export default function NotificationsScreen() {
             <Pressable
               key={filter.id}
               accessibilityRole="button"
+              accessibilityState={{ selected }}
               onPress={() => setSelectedFilter(filter.id)}
               style={({ pressed }) => [
                 styles.filterChip,

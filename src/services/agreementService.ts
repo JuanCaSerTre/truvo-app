@@ -1,4 +1,4 @@
-import { Agreement, Contact, ContactInput, InviteEmailResult, Notification, Payment, PaymentInput } from '@/types/models';
+import { Agreement, Contact, ContactInput, InviteEmailResult, Notification, NotificationSettings, Payment, PaymentInput } from '@/types/models';
 import { supabase } from '@/lib/supabase';
 
 type AgreementRow = {
@@ -55,8 +55,22 @@ type NotificationRow = {
   body: string;
   read: boolean;
   created_at: string;
+  archived_at: string | null;
   related_agreement_id: string | null;
   related_payment_id: string | null;
+};
+
+type NotificationSettingsRow = {
+  user_id: string;
+  agreement_requests: boolean;
+  payment_confirmations: boolean;
+  payment_reminders: boolean;
+  overdue_payments: boolean;
+  marketing_messages: boolean;
+  product_updates: boolean;
+  push_notifications: boolean;
+  email_notifications: boolean;
+  updated_at: string | null;
 };
 
 type ContactRow = {
@@ -116,8 +130,22 @@ const toNotificationRow = (notification: Notification) => ({
   body: notification.body,
   read: notification.read,
   created_at: notification.createdAt,
+  archived_at: notification.archivedAt,
   related_agreement_id: notification.relatedAgreementId,
   related_payment_id: notification.relatedPaymentId,
+});
+
+const toNotificationSettingsRow = (userId: string, settings: NotificationSettings) => ({
+  user_id: userId,
+  agreement_requests: settings.agreementRequests,
+  payment_confirmations: settings.paymentConfirmations,
+  payment_reminders: settings.paymentReminders,
+  overdue_payments: settings.overduePayments,
+  marketing_messages: settings.marketingMessages,
+  product_updates: settings.productUpdates,
+  push_notifications: settings.pushNotifications,
+  email_notifications: settings.emailNotifications,
+  updated_at: new Date().toISOString(),
 });
 
 const toContactRow = (contact: Contact) => ({
@@ -183,8 +211,20 @@ const fromNotificationRow = (row: NotificationRow): Notification => ({
   body: row.body,
   read: row.read,
   createdAt: row.created_at,
+  archivedAt: row.archived_at || undefined,
   relatedAgreementId: row.related_agreement_id || undefined,
   relatedPaymentId: row.related_payment_id || undefined,
+});
+
+const fromNotificationSettingsRow = (row: NotificationSettingsRow): NotificationSettings => ({
+  agreementRequests: row.agreement_requests,
+  paymentConfirmations: row.payment_confirmations,
+  paymentReminders: row.payment_reminders,
+  overduePayments: row.overdue_payments,
+  marketingMessages: row.marketing_messages,
+  productUpdates: row.product_updates,
+  pushNotifications: row.push_notifications,
+  emailNotifications: row.email_notifications,
 });
 
 const fromContactRow = (row: ContactRow): Contact => ({
@@ -230,6 +270,21 @@ export const agreementService = {
     const { error } = await supabase.from('agreements').update(toAgreementRow(agreement)).eq('id', agreement.id);
     if (error) throw error;
     return agreement;
+  },
+
+  async updateScheduledPayments(agreementId: string, paymentSchedule: NonNullable<Agreement['paymentSchedule']>): Promise<void> {
+    if (!supabase) return;
+    const client = supabase;
+    const updates = paymentSchedule.map((payment) =>
+      client
+        .from('scheduled_payments')
+        .update({ status: payment.status, due_date: payment.due_date, amount: payment.amount })
+        .eq('agreement_id', agreementId)
+        .eq('payment_number', payment.payment_number),
+    );
+    const results = await Promise.all(updates);
+    const error = results.find((result) => result.error)?.error;
+    if (error) throw error;
   },
 
   async sendAgreementInvite(agreementId: string): Promise<InviteEmailResult> {
@@ -279,6 +334,40 @@ export const agreementService = {
     if (!supabase) return;
     const { error } = await supabase.from('notifications').update({ read: true }).eq('id', notificationId);
     if (error) throw error;
+  },
+
+  async archiveNotification(notificationId: string, archivedAt: string): Promise<void> {
+    if (!supabase) return;
+    const { error } = await supabase.from('notifications').update({ read: true, archived_at: archivedAt }).eq('id', notificationId);
+    if (error) throw error;
+  },
+
+  async deleteNotification(notificationId: string): Promise<void> {
+    if (!supabase) return;
+    const { error } = await supabase.from('notifications').delete().eq('id', notificationId);
+    if (error) throw error;
+  },
+
+  async getNotificationSettings(userId: string): Promise<NotificationSettings | undefined> {
+    if (!supabase) return undefined;
+    const { data, error } = await supabase
+      .from('notification_settings')
+      .select('*')
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (error && (error as { code?: string }).code !== '42P01') throw error;
+    return data ? fromNotificationSettingsRow(data as NotificationSettingsRow) : undefined;
+  },
+
+  async updateNotificationSettings(userId: string, settings: NotificationSettings): Promise<NotificationSettings> {
+    if (!supabase) return settings;
+    const { data, error } = await supabase
+      .from('notification_settings')
+      .upsert(toNotificationSettingsRow(userId, settings), { onConflict: 'user_id' })
+      .select('*')
+      .single();
+    if (error) throw error;
+    return fromNotificationSettingsRow(data as NotificationSettingsRow);
   },
 
   async upsertContact(contact: Contact): Promise<Contact> {

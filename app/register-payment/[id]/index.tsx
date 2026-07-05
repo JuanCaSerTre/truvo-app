@@ -32,6 +32,7 @@ export default function RegisterPaymentScreen() {
   }
 
   const remaining = getRemainingBalance(agreement, payments);
+  const currency = currentUser.currency || 'USD';
   const canRegisterPayment =
     agreement.borrowerId === currentUser.id ||
     agreement.borrowerEmail?.toLowerCase() === currentUser.email?.toLowerCase() ||
@@ -48,7 +49,7 @@ export default function RegisterPaymentScreen() {
       return;
     }
     if (parsedAmount > remaining) {
-      Alert.alert('Payment is above the remaining balance', `The remaining confirmed balance is ${formatMoney(remaining)}.`);
+      Alert.alert('Payment is above the remaining balance', `The remaining confirmed balance is ${formatMoney(remaining, currency)}.`);
       return;
     }
     if (!canRegisterPayment) {
@@ -78,7 +79,7 @@ export default function RegisterPaymentScreen() {
       <Text style={styles.title}>Register payment</Text>
       <View style={styles.balance}>
         <Text style={styles.balanceLabel}>Remaining confirmed balance</Text>
-        <Text style={styles.balanceValue}>{formatMoney(remaining)}</Text>
+        <Text style={styles.balanceValue}>{formatMoney(remaining, currency)}</Text>
         <Text style={styles.balanceNote}>This payment will stay pending until the other party confirms it.</Text>
       </View>
       <FormInput label="Payment amount" value={amount} onChangeText={setAmount} keyboardType="decimal-pad" placeholder="0.00" />

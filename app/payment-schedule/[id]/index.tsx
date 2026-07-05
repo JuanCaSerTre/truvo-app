@@ -11,7 +11,7 @@ import { formatDate, formatMoney } from '@/utils/money';
 
 export default function PaymentScheduleScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { agreements, payments } = useTruvoStore();
+  const { agreements, currentUser, payments } = useTruvoStore();
   const agreement = agreements.find((item) => item.id === id);
 
   if (!agreement) {
@@ -32,6 +32,8 @@ export default function PaymentScheduleScreen() {
           status: 'scheduled' as const,
         }));
   const agreementPayments = payments.filter((payment) => payment.agreementId === agreement.id);
+  const matchedPaymentIds = new Set<string>();
+  const currency = currentUser.currency || 'USD';
 
   return (
     <ScreenContainer>
@@ -45,13 +47,19 @@ export default function PaymentScheduleScreen() {
 
       <View style={styles.summaryCard}>
         <Text style={styles.summaryLabel}>Total repayment</Text>
-        <Text style={styles.summaryValue}>{formatMoney(agreement.totalRepaymentAmount)}</Text>
+        <Text style={styles.summaryValue}>{formatMoney(agreement.totalRepaymentAmount, currency)}</Text>
         <Text style={styles.summaryMeta}>Next payment {agreement.nextPaymentDate ? formatDate(agreement.nextPaymentDate) : 'not scheduled'}</Text>
       </View>
 
       <View style={styles.scheduleList}>
         {schedule.map((payment) => {
-          const matchingPayment = agreementPayments.find((item) => Math.abs(item.amount - payment.amount) < 0.01 && item.paymentDate <= payment.due_date);
+          const matchingPayment = agreementPayments.find(
+            (item) =>
+              !matchedPaymentIds.has(item.id) &&
+              Math.abs(item.amount - payment.amount) < 0.01 &&
+              item.paymentDate <= payment.due_date,
+          );
+          if (matchingPayment) matchedPaymentIds.add(matchingPayment.id);
           const status = matchingPayment?.status || payment.status;
           return (
             <View key={`${payment.payment_number}-${payment.due_date}`} style={styles.scheduleRow}>
@@ -59,7 +67,7 @@ export default function PaymentScheduleScreen() {
                 <Text style={styles.scheduleNumberText}>{payment.payment_number}</Text>
               </View>
               <View style={styles.scheduleCopy}>
-                <Text style={styles.scheduleTitle}>{formatMoney(payment.amount)}</Text>
+                <Text style={styles.scheduleTitle}>{formatMoney(payment.amount, currency)}</Text>
                 <Text style={styles.scheduleDate}>Due {formatDate(payment.due_date)}</Text>
               </View>
               <StatusBadge status={status} />

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Alert, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { EmptyState } from '@/components/EmptyState';
@@ -12,6 +12,7 @@ import { formatDate, formatMoney } from '@/utils/money';
 export default function AgreementRequestScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { agreements, currentUser, updateAgreementStatus, users } = useTruvoStore();
+  const [statusAction, setStatusAction] = useState<'active' | 'rejected' | null>(null);
   const agreement = agreements.find((item) => item.id === id);
 
   if (!agreement) {
@@ -22,21 +23,27 @@ export default function AgreementRequestScreen() {
     );
   }
 
-  const accept = () => {
+  const accept = async () => {
     try {
-      updateAgreementStatus(agreement.id, 'active');
+      setStatusAction('active');
+      await updateAgreementStatus(agreement.id, 'active');
       router.replace(`/agreement/${agreement.id}`);
     } catch (error) {
       Alert.alert('Could not accept agreement', error instanceof Error ? error.message : 'Please try again.');
+    } finally {
+      setStatusAction(null);
     }
   };
 
-  const reject = () => {
+  const reject = async () => {
     try {
-      updateAgreementStatus(agreement.id, 'rejected');
+      setStatusAction('rejected');
+      await updateAgreementStatus(agreement.id, 'rejected');
       router.replace('/(tabs)/agreements');
     } catch (error) {
       Alert.alert('Could not reject agreement', error instanceof Error ? error.message : 'Please try again.');
+    } finally {
+      setStatusAction(null);
     }
   };
   const canRespond =
@@ -53,6 +60,7 @@ export default function AgreementRequestScreen() {
   }
 
   const lender = users.find((user) => user.id === agreement.lenderId);
+  const currency = currentUser.currency || 'USD';
 
   return (
     <ScreenContainer>
@@ -69,12 +77,12 @@ export default function AgreementRequestScreen() {
         <Text style={styles.value}>{formatDate(agreement.dueDate)}</Text>
       </View>
       <View style={styles.summaryGrid}>
-        <SummaryCard label="Principal" value={formatMoney(agreement.principalAmount)} />
-        <SummaryCard label="Interest" value={formatMoney(agreement.interestAmount)} />
-        <SummaryCard label="Total repayment" value={formatMoney(agreement.totalRepaymentAmount)} accent />
+        <SummaryCard label="Principal" value={formatMoney(agreement.principalAmount, currency)} />
+        <SummaryCard label="Interest" value={formatMoney(agreement.interestAmount, currency)} />
+        <SummaryCard label="Total repayment" value={formatMoney(agreement.totalRepaymentAmount, currency)} accent />
       </View>
-      <PrimaryButton label="Accept agreement" onPress={accept} disabled={agreement.status !== 'pending' || !canRespond} />
-      <PrimaryButton label="Reject agreement" variant="outline" onPress={reject} disabled={agreement.status !== 'pending' || !canRespond} />
+      <PrimaryButton label="Accept agreement" onPress={accept} loading={statusAction === 'active'} disabled={agreement.status !== 'pending' || !canRespond || Boolean(statusAction)} />
+      <PrimaryButton label="Reject agreement" variant="outline" onPress={reject} loading={statusAction === 'rejected'} disabled={agreement.status !== 'pending' || !canRespond || Boolean(statusAction)} />
     </ScreenContainer>
   );
 }

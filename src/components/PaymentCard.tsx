@@ -7,14 +7,15 @@ import { StatusBadge } from './StatusBadge';
 
 interface Props {
   payment: Payment;
+  currency?: string;
   onPress?: () => void;
 }
 
-export function PaymentCard({ payment, onPress }: Props) {
+export function PaymentCard({ payment, currency = 'USD', onPress }: Props) {
   const content = (
     <>
       <View>
-        <Text style={styles.amount}>{formatMoney(payment.amount)}</Text>
+        <Text style={styles.amount}>{formatMoney(payment.amount, currency)}</Text>
         <Text style={styles.meta}>{formatDate(payment.paymentDate)} · {payment.method.replace('_', ' ')}</Text>
       </View>
       <StatusBadge status={payment.status} />

@@ -10,7 +10,7 @@ import { colors, radii, spacing, typography } from '@/constants/theme';
 
 type AuthMode = 'sign_in' | 'sign_up';
 
-export default function PhoneLoginScreen() {
+export default function EmailLoginScreen() {
   const { setUserFromAuth } = useTruvoStore();
   const [mode, setMode] = useState<AuthMode>('sign_in');
   const [name, setName] = useState('');
@@ -107,7 +107,7 @@ export default function PhoneLoginScreen() {
 
 function ModeButton({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
   return (
-    <Pressable onPress={onPress} style={[styles.modeButton, active && styles.modeButtonActive]}>
+    <Pressable accessibilityRole="button" accessibilityState={{ selected: active }} onPress={onPress} style={[styles.modeButton, active && styles.modeButtonActive]}>
       <Text style={[styles.modeText, active && styles.modeTextActive]}>{label}</Text>
     </Pressable>
   );

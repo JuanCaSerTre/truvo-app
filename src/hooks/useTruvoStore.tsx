@@ -10,7 +10,7 @@ import {
 import { agreementService } from '@/services/agreementService';
 import { authService } from '@/services/authService';
 import { isSupabaseConfigured } from '@/lib/supabase';
-import { subscriptionService } from '@/services/subscriptionService';
+import { SubscriptionCheckoutResult, subscriptionService } from '@/services/subscriptionService';
 import {
   Agreement,
   AgreementInput,
@@ -23,6 +23,7 @@ import {
   NotificationSettings,
   Payment,
   PaymentInput,
+  ScheduledPayment,
   SubscriptionStatus,
   User,
   UserProfileInput,
@@ -44,15 +45,15 @@ interface TruvoStore {
   sendAgreementInvite: (agreementId: string) => Promise<InviteEmailResult>;
   createContact: (input: ContactInput) => Promise<Contact>;
   syncData: () => Promise<void>;
-  updateAgreementStatus: (agreementId: string, status: AgreementStatus) => void;
+  updateAgreementStatus: (agreementId: string, status: AgreementStatus) => Promise<void>;
   registerPayment: (input: PaymentInput) => Promise<Payment>;
-  confirmPayment: (paymentId: string) => void;
-  rejectPayment: (paymentId: string) => void;
+  confirmPayment: (paymentId: string) => Promise<void>;
+  rejectPayment: (paymentId: string) => Promise<void>;
   markNotificationRead: (notificationId: string) => void;
   archiveNotification: (notificationId: string) => void;
   deleteNotification: (notificationId: string) => void;
   updateNotificationSetting: (key: keyof NotificationSettings, enabled: boolean) => void;
-  subscribe: (plan: 'monthly' | 'yearly') => Promise<void>;
+  subscribe: (plan: 'monthly' | 'yearly') => Promise<SubscriptionCheckoutResult>;
   updateCurrentUserProfile: (input: UserProfileInput) => Promise<User>;
   setUserFromAuth: (user: User) => void;
   clearUserSessionData: () => void;
@@ -68,6 +69,38 @@ const id = () =>
   });
 const now = () => new Date().toISOString();
 const normalizePhone = (value?: string) => value?.replace(/\D/g, '') || '';
+const isUuid = (value: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+
+const isPaymentForScheduledPayment = (payment: Payment, scheduledPayment: ScheduledPayment) =>
+  Math.abs(payment.amount - scheduledPayment.amount) < 0.01 && payment.paymentDate <= scheduledPayment.due_date;
+
+const getNextPaymentDate = (paymentSchedule?: ScheduledPayment[]) =>
+  paymentSchedule?.find((payment) => payment.status === 'scheduled' || payment.status === 'pending_confirmation')?.due_date;
+
+const applyPaymentToAgreementSchedule = (
+  agreement: Agreement,
+  payment: Payment,
+  status: ScheduledPayment['status'],
+  eligibleStatuses: ScheduledPayment['status'][] = ['scheduled', 'pending_confirmation'],
+) => {
+  if (!agreement.paymentSchedule?.length) return agreement;
+
+  const targetIndex = agreement.paymentSchedule.findIndex(
+    (scheduledPayment) => eligibleStatuses.includes(scheduledPayment.status) && isPaymentForScheduledPayment(payment, scheduledPayment),
+  );
+
+  if (targetIndex === -1) return agreement;
+
+  const paymentSchedule = agreement.paymentSchedule.map((scheduledPayment, index) =>
+    index === targetIndex ? { ...scheduledPayment, status } : scheduledPayment,
+  );
+
+  return {
+    ...agreement,
+    paymentSchedule,
+    nextPaymentDate: getNextPaymentDate(paymentSchedule),
+  };
+};
 
 const defaultNotificationSettings: NotificationSettings = {
   agreementRequests: true,
@@ -80,12 +113,48 @@ const defaultNotificationSettings: NotificationSettings = {
   emailNotifications: false,
 };
 
+const notificationSettingsStorageKey = (userId: string) => `truvo:${userId}:notificationSettings`;
+
+const notificationTypeSetting: Partial<Record<Notification['type'], keyof NotificationSettings>> = {
+  new_agreement_request: 'agreementRequests',
+  agreement_accepted: 'agreementRequests',
+  agreement_rejected: 'agreementRequests',
+  agreement_cancelled: 'agreementRequests',
+  agreement_completed: 'agreementRequests',
+  payment_registered: 'paymentConfirmations',
+  payment_waiting_confirmation: 'paymentConfirmations',
+  payment_confirmed: 'paymentConfirmations',
+  payment_rejected: 'paymentConfirmations',
+  upcoming_payment_reminder: 'paymentReminders',
+  overdue_payment_reminder: 'overduePayments',
+  premium_subscription: 'marketingMessages',
+  system_update: 'productUpdates',
+};
+
+const loadNotificationSettings = (userId: string) => {
+  try {
+    const stored = globalThis.localStorage?.getItem(notificationSettingsStorageKey(userId));
+    if (!stored) return defaultNotificationSettings;
+    return { ...defaultNotificationSettings, ...(JSON.parse(stored) as Partial<NotificationSettings>) };
+  } catch {
+    return defaultNotificationSettings;
+  }
+};
+
+const saveNotificationSettings = (userId: string, settings: NotificationSettings) => {
+  try {
+    globalThis.localStorage?.setItem(notificationSettingsStorageKey(userId), JSON.stringify(settings));
+  } catch (error) {
+    console.warn('Unable to persist notification settings', error);
+  }
+};
+
 export function TruvoProvider({ children }: PropsWithChildren) {
   const [currentUser, setCurrentUser] = useState(seedCurrentUser);
   const [agreementState, setAgreementState] = useState(seedAgreements);
   const [paymentState, setPaymentState] = useState(seedPayments);
   const [notificationState, setNotificationState] = useState(seedNotifications);
-  const [notificationSettings, setNotificationSettings] = useState(defaultNotificationSettings);
+  const [notificationSettings, setNotificationSettings] = useState(() => loadNotificationSettings(seedCurrentUser.id));
   const [contactState, setContactState] = useState<Contact[]>([]);
   const [timelineState, setTimelineState] = useState(seedTimeline);
   const [syncing, setSyncing] = useState(false);
@@ -111,16 +180,40 @@ export function TruvoProvider({ children }: PropsWithChildren) {
     void syncData();
   }, [currentUser.id, syncData]);
 
+  useEffect(() => {
+    setNotificationSettings(loadNotificationSettings(currentUser.id));
+    if (isSupabaseConfigured && isUuid(currentUser.id)) {
+      void agreementService
+        .getNotificationSettings(currentUser.id)
+        .then((settings) => {
+          if (!settings) return;
+          saveNotificationSettings(currentUser.id, settings);
+          setNotificationSettings(settings);
+        })
+        .catch((error) => console.warn('Unable to sync notification settings', error));
+    }
+  }, [currentUser.id]);
+
   const addTimeline = (event: Omit<AgreementTimelineEvent, 'id' | 'createdAt'>) => {
     setTimelineState((items) => [{ ...event, id: id(), createdAt: now() }, ...items]);
   };
 
   const addNotification = (notification: Omit<Notification, 'id' | 'createdAt' | 'read'>) => {
+    const settingKey = notificationTypeSetting[notification.type];
+    if (notification.userId === currentUser.id && settingKey && !notificationSettings[settingKey]) return;
+
     const nextNotification: Notification = { ...notification, id: id(), createdAt: now(), read: false };
     if (nextNotification.userId === currentUser.id) {
       setNotificationState((items) => [nextNotification, ...items]);
     }
     void agreementService.createNotification(nextNotification).catch((error) => console.warn('Unable to persist notification', error));
+  };
+
+  const persistAgreementWithSchedule = async (agreement: Agreement) => {
+    await agreementService.updateAgreement(agreement);
+    if (agreement.paymentSchedule?.length) {
+      await agreementService.updateScheduledPayments(agreement.id, agreement.paymentSchedule);
+    }
   };
 
   const isCurrentUserBorrower = (agreement: Agreement) =>
@@ -195,7 +288,7 @@ export function TruvoProvider({ children }: PropsWithChildren) {
       actorId: currentUser.id,
       type: 'agreement_created',
       title: 'Agreement request sent',
-      description: `${formatMoney(input.totalRepaymentAmount)} requested from ${input.borrowerName || input.borrowerEmail || input.borrowerPhone}.`,
+      description: `${formatMoney(input.totalRepaymentAmount, currentUser.currency)} requested from ${input.borrowerName || input.borrowerEmail || input.borrowerPhone}.`,
     });
     addNotification({
       userId: currentUser.id,
@@ -221,35 +314,22 @@ export function TruvoProvider({ children }: PropsWithChildren) {
     return agreementService.sendAgreementInvite(agreementId);
   };
 
-  const updateAgreementStatus = (agreementId: string, status: AgreementStatus) => {
+  const updateAgreementStatus = async (agreementId: string, status: AgreementStatus) => {
     const existingAgreement = agreementState.find((agreement) => agreement.id === agreementId);
     if (!existingAgreement) return;
     assertCanUpdateAgreementStatus(existingAgreement, status);
-    const persistedAgreement = existingAgreement
-      ? {
-          ...existingAgreement,
-          status,
-          borrowerId: status === 'active' && !existingAgreement.borrowerId && existingAgreement.lenderId !== currentUser.id ? currentUser.id : existingAgreement.borrowerId,
-          acceptedAt: status === 'active' ? now() : existingAgreement.acceptedAt,
-          completedAt: status === 'completed' ? now() : existingAgreement.completedAt,
-        }
-      : undefined;
-    if (persistedAgreement) {
-      void agreementService.updateAgreement(persistedAgreement);
-    }
-    setAgreementState((items) =>
-      items.map((agreement) =>
-        agreement.id === agreementId
-          ? {
-            ...agreement,
-            status,
-            borrowerId: status === 'active' && !agreement.borrowerId && agreement.lenderId !== currentUser.id ? currentUser.id : agreement.borrowerId,
-            acceptedAt: status === 'active' ? now() : agreement.acceptedAt,
-              completedAt: status === 'completed' ? now() : agreement.completedAt,
-            }
-          : agreement,
-      ),
-    );
+    const updatedAgreement: Agreement = {
+      ...existingAgreement,
+      status,
+      borrowerId:
+        status === 'active' && !existingAgreement.borrowerId && existingAgreement.lenderId !== currentUser.id
+          ? currentUser.id
+          : existingAgreement.borrowerId,
+      acceptedAt: status === 'active' ? now() : existingAgreement.acceptedAt,
+      completedAt: status === 'completed' ? now() : existingAgreement.completedAt,
+    };
+    await agreementService.updateAgreement(updatedAgreement);
+    setAgreementState((items) => items.map((agreement) => (agreement.id === agreementId ? updatedAgreement : agreement)));
     const type =
       status === 'active'
         ? 'agreement_accepted'
@@ -305,86 +385,119 @@ export function TruvoProvider({ children }: PropsWithChildren) {
       createdAt: now(),
     };
     await agreementService.createPayment(payment);
+    const updatedAgreement = applyPaymentToAgreementSchedule(agreement, payment, 'pending_confirmation', ['scheduled']);
+    if (updatedAgreement !== agreement) {
+      await persistAgreementWithSchedule(updatedAgreement);
+    }
     setPaymentState((items) => [payment, ...items]);
+    setAgreementState((items) => items.map((item) => (item.id === agreement.id ? updatedAgreement : item)));
     addTimeline({
       agreementId: input.agreementId,
       actorId: currentUser.id,
       type: 'payment_registered',
       title: 'Payment registered',
-      description: `${formatMoney(input.amount)} is pending confirmation.`,
+      description: `${formatMoney(input.amount, currentUser.currency)} is pending confirmation.`,
     });
     addNotification({
       userId: agreement.lenderId,
       type: 'payment_waiting_confirmation',
       title: 'Payment waiting for confirmation',
-      body: `${currentUser.name} registered a ${formatMoney(input.amount)} payment for your confirmation.`,
+      body: `${currentUser.name} registered a ${formatMoney(input.amount, currentUser.currency)} payment for your confirmation.`,
       relatedAgreementId: input.agreementId,
       relatedPaymentId: payment.id,
     });
     return payment;
   };
 
-  const confirmPayment = (paymentId: string) => {
+  const confirmPayment = async (paymentId: string) => {
     const payment = paymentState.find((item) => item.id === paymentId);
     if (!payment) return;
     if (payment.receiverId !== currentUser.id) {
       throw new Error('Only the payment receiver can confirm this payment.');
     }
 
-    let updatedPayments: Payment[] = [];
-    setPaymentState((items) => {
-      updatedPayments = items.map((payment) =>
-        payment.id === paymentId ? { ...payment, status: 'confirmed', confirmedAt: now() } : payment,
-      );
-      return updatedPayments;
-    });
+    const confirmedAt = now();
+    const confirmedPayment: Payment = { ...payment, status: 'confirmed', confirmedAt };
+    const updatedPayments = paymentState.map((item) => (item.id === paymentId ? confirmedPayment : item));
+    const agreement = agreementState.find((item) => item.id === payment.agreementId);
+    let agreementToPersist: Agreement | undefined;
+    if (agreement) {
+      const updatedAgreement = applyPaymentToAgreementSchedule(agreement, confirmedPayment, 'confirmed', ['pending_confirmation', 'scheduled']);
+      const completed = shouldCompleteAgreement(updatedAgreement, updatedPayments);
+      agreementToPersist = completed
+        ? { ...updatedAgreement, status: 'completed', completedAt: confirmedAt }
+        : updatedAgreement;
+      await persistAgreementWithSchedule(agreementToPersist);
+    }
 
-    void agreementService.updatePayment({ ...payment, status: 'confirmed', confirmedAt: now() });
+    await agreementService.updatePayment(confirmedPayment);
+    setPaymentState(updatedPayments);
+    if (agreement && agreementToPersist) {
+      setAgreementState((items) => items.map((item) => (item.id === agreement.id ? agreementToPersist : item)));
+    }
+
     addTimeline({
       agreementId: payment.agreementId,
       actorId: currentUser.id,
       type: 'payment_confirmed',
       title: 'Payment confirmed',
-      description: `${formatMoney(payment.amount)} was applied to the balance.`,
+      description: `${formatMoney(payment.amount, currentUser.currency)} was applied to the balance.`,
     });
     addNotification({
       userId: payment.payerId,
       type: 'payment_confirmed',
       title: 'Payment confirmed',
-      body: `${currentUser.name} confirmed your ${formatMoney(payment.amount)} payment.`,
+      body: `${currentUser.name} confirmed your ${formatMoney(payment.amount, currentUser.currency)} payment.`,
       relatedAgreementId: payment.agreementId,
       relatedPaymentId: payment.id,
     });
 
-    const agreement = agreementState.find((item) => item.id === payment.agreementId);
-    if (agreement && shouldCompleteAgreement(agreement, updatedPayments)) {
-      updateAgreementStatus(agreement.id, 'completed');
+    if (agreement && agreementToPersist?.status === 'completed' && agreement.status !== 'completed') {
+      addTimeline({ agreementId: agreement.id, actorId: currentUser.id, type: 'agreement_completed', title: 'Agreement completed' });
+      const otherUserId = agreement.lenderId === currentUser.id ? agreement.borrowerId : agreement.lenderId;
+      if (otherUserId) {
+        addNotification({
+          userId: otherUserId,
+          type: 'agreement_completed',
+          title: 'Agreement completed',
+          body: 'The agreement has been fully repaid.',
+          relatedAgreementId: agreement.id,
+        });
+      }
     }
   };
 
-  const rejectPayment = (paymentId: string) => {
+  const rejectPayment = async (paymentId: string) => {
     const payment = paymentState.find((item) => item.id === paymentId);
     if (!payment) return;
     if (payment.receiverId !== currentUser.id) {
       throw new Error('Only the payment receiver can reject this payment.');
     }
 
-    setPaymentState((items) =>
-      items.map((payment) => (payment.id === paymentId ? { ...payment, status: 'rejected', rejectedAt: now() } : payment)),
-    );
-    void agreementService.updatePayment({ ...payment, status: 'rejected', rejectedAt: now() });
+    const rejectedPayment: Payment = { ...payment, status: 'rejected', rejectedAt: now() };
+    const agreement = agreementState.find((item) => item.id === payment.agreementId);
+    let updatedAgreement: Agreement | undefined;
+    if (agreement) {
+      updatedAgreement = applyPaymentToAgreementSchedule(agreement, payment, 'scheduled', ['pending_confirmation']);
+      if (updatedAgreement !== agreement) await persistAgreementWithSchedule(updatedAgreement);
+    }
+    await agreementService.updatePayment(rejectedPayment);
+    setPaymentState((items) => items.map((payment) => (payment.id === paymentId ? rejectedPayment : payment)));
+    if (agreement && updatedAgreement) {
+      setAgreementState((items) => items.map((item) => (item.id === agreement.id ? updatedAgreement : item)));
+    }
     addTimeline({
       agreementId: payment.agreementId,
       actorId: currentUser.id,
       type: 'payment_rejected',
       title: 'Payment rejected',
-      description: `${formatMoney(payment.amount)} was not applied to the balance.`,
+      description: `${formatMoney(payment.amount, currentUser.currency)} was not applied to the balance.`,
     });
     addNotification({
       userId: payment.payerId,
       type: 'payment_rejected',
       title: 'Payment rejected',
-      body: `${currentUser.name} rejected your ${formatMoney(payment.amount)} payment.`,
+      body: `${currentUser.name} rejected your ${formatMoney(payment.amount, currentUser.currency)} payment.`,
       relatedAgreementId: payment.agreementId,
       relatedPaymentId: payment.id,
     });
@@ -398,25 +511,39 @@ export function TruvoProvider({ children }: PropsWithChildren) {
   };
 
   const archiveNotification = (notificationId: string) => {
+    const archivedAt = now();
     setNotificationState((items) =>
       items.map((notification) =>
-        notification.id === notificationId ? { ...notification, read: true, archivedAt: now() } : notification,
+        notification.id === notificationId ? { ...notification, read: true, archivedAt } : notification,
       ),
     );
-    void agreementService.markNotificationRead(notificationId);
+    void agreementService.archiveNotification(notificationId, archivedAt);
   };
 
   const deleteNotification = (notificationId: string) => {
     setNotificationState((items) => items.filter((notification) => notification.id !== notificationId));
+    void agreementService.deleteNotification(notificationId);
   };
 
   const updateNotificationSetting = (key: keyof NotificationSettings, enabled: boolean) => {
-    setNotificationSettings((settings) => ({ ...settings, [key]: enabled }));
+    setNotificationSettings((settings) => {
+      const updatedSettings = { ...settings, [key]: enabled };
+      saveNotificationSettings(currentUser.id, updatedSettings);
+      if (isSupabaseConfigured && isUuid(currentUser.id)) {
+        void agreementService
+          .updateNotificationSettings(currentUser.id, updatedSettings)
+          .catch((error) => console.warn('Unable to persist notification settings', error));
+      }
+      return updatedSettings;
+    });
   };
 
   const subscribe = async (plan: 'monthly' | 'yearly') => {
     const result = await subscriptionService.startStripeCheckout(plan);
-    setCurrentUser((user) => ({ ...user, subscription_status: result.status as SubscriptionStatus }));
+    if (result.status && result.status !== currentUser.subscription_status) {
+      setCurrentUser((user) => ({ ...user, subscription_status: result.status as SubscriptionStatus }));
+    }
+    return result;
   };
 
   const updateCurrentUserProfile = async (input: UserProfileInput) => {
@@ -440,7 +567,7 @@ export function TruvoProvider({ children }: PropsWithChildren) {
     setAgreementState(seedAgreements);
     setPaymentState(seedPayments);
     setNotificationState(seedNotifications);
-    setNotificationSettings(defaultNotificationSettings);
+    setNotificationSettings(loadNotificationSettings(seedCurrentUser.id));
     setContactState([]);
     setTimelineState(seedTimeline);
   };

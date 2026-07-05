@@ -9,6 +9,7 @@ import { useTruvoStore } from '@/hooks/useTruvoStore';
 
 export default function PaymentsScreen() {
   const { agreements, currentUser, payments } = useTruvoStore();
+  const currency = currentUser.currency || 'USD';
   const pending = payments.filter((payment) => payment.status === 'pending_confirmation' && payment.receiverId === currentUser.id);
   const payableAgreements = agreements.filter(
     (agreement) =>
@@ -30,7 +31,7 @@ export default function PaymentsScreen() {
         />
       ) : (
         pending.map((payment) => (
-          <PaymentCard key={payment.id} payment={payment} onPress={() => router.push(`/payment-confirmation/${payment.id}`)} />
+          <PaymentCard key={payment.id} payment={payment} currency={currency} onPress={() => router.push(`/payment-confirmation/${payment.id}`)} />
         ))
       )}
       {payableAgreements

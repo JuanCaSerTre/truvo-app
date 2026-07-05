@@ -26,12 +26,19 @@ const modeOptions: { value: CalculationMode; label: string; helper: string }[] =
 
 const parseOptionalAmount = (value: string) => (value.trim() ? toNumber(value) : undefined);
 const titleCase = (value: string) => value.replace('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
-const isIsoDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
+const isIsoDate = (value: string) => {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return false;
+  const [, year, month, day] = match.map(Number);
+  const date = new Date(year, month - 1, day);
+  return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
+};
 const isValidEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 const normalizePhone = (value: string) => value.replace(/\D/g, '');
 
 export default function CreateAgreementScreen() {
   const { agreements, contacts, currentUser, createAgreement, sendAgreementInvite } = useTruvoStore();
+  const currency = currentUser.currency || 'USD';
   const [stepIndex, setStepIndex] = useState(0);
   const [borrowerEmail, setBorrowerEmail] = useState('');
   const [borrowerPhone, setBorrowerPhone] = useState('');
@@ -277,6 +284,8 @@ export default function CreateAgreementScreen() {
               {modeOptions.map((mode) => (
                 <Pressable
                   key={mode.value}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: calculationMode === mode.value }}
                   onPress={() => setCalculationMode(mode.value)}
                   style={[styles.modeCard, calculationMode === mode.value && styles.modeCardActive]}
                 >
@@ -316,6 +325,7 @@ export default function CreateAgreementScreen() {
             previewSchedule={previewSchedule}
             showFullSchedule={showFullSchedule}
             setShowFullSchedule={setShowFullSchedule}
+            currency={currency}
           />
         ) : null}
       </ScrollView>
@@ -329,6 +339,7 @@ export default function CreateAgreementScreen() {
         onBack={goBack}
         onNext={goNext}
         onSubmit={submit}
+        currency={currency}
       />
     </SafeAreaView>
   );
@@ -357,6 +368,7 @@ function ReviewStep({
   previewSchedule,
   showFullSchedule,
   setShowFullSchedule,
+  currency,
 }: {
   borrowerPhone: string;
   borrowerEmail: string;
@@ -368,6 +380,7 @@ function ReviewStep({
   previewSchedule: ScheduledPayment[];
   showFullSchedule: boolean;
   setShowFullSchedule: React.Dispatch<React.SetStateAction<boolean>>;
+  currency: string;
 }) {
   return (
     <View style={styles.reviewStack}>
@@ -375,14 +388,14 @@ function ReviewStep({
         <Text style={styles.reviewEyebrow}>Agreement summary</Text>
         <Text style={styles.reviewTitle}>{borrowerName.trim() || borrowerEmail.trim() || 'Borrower'}</Text>
         <Text style={styles.reviewSubtitle}>{borrowerEmail.trim() || borrowerPhone.trim()}</Text>
-        <Text style={styles.reviewTotal}>{formatMoney(calculation.totalRepaymentAmount)}</Text>
+        <Text style={styles.reviewTotal}>{formatMoney(calculation.totalRepaymentAmount, currency)}</Text>
         <Text style={styles.reviewSubtitle}>
-          {calculation.numberOfPayments || 0} {titleCase(paymentFrequency)} payment{calculation.numberOfPayments === 1 ? '' : 's'} of {formatMoney(calculation.paymentAmount)}
+          {calculation.numberOfPayments || 0} {titleCase(paymentFrequency)} payment{calculation.numberOfPayments === 1 ? '' : 's'} of {formatMoney(calculation.paymentAmount, currency)}
         </Text>
         <View style={styles.reviewDivider} />
         <View style={styles.reviewGrid}>
-          <ReviewMetric label="Principal" value={formatMoney(calculation.principalAmount)} />
-          <ReviewMetric label="Interest" value={formatMoney(calculation.interestAmount)} />
+          <ReviewMetric label="Principal" value={formatMoney(calculation.principalAmount, currency)} />
+          <ReviewMetric label="Interest" value={formatMoney(calculation.interestAmount, currency)} />
           <ReviewMetric label="Starts" value={calculation.startDate ? formatDate(calculation.startDate) : 'Pending'} />
           <ReviewMetric label="Due" value={calculation.dueDate ? formatDate(calculation.dueDate) : 'Pending'} />
         </View>
@@ -395,6 +408,7 @@ function ReviewStep({
               <ScheduleRow
                 key={`${payment.payment_number}-${payment.due_date}`}
                 payment={payment}
+                currency={currency}
                 isFinal={payment.payment_number === calculation.paymentSchedule.length}
                 showGap={index === 3 && !showFullSchedule && calculation.paymentSchedule.length > 4}
               />
@@ -434,6 +448,7 @@ function LiveSummary({
   onBack,
   onNext,
   onSubmit,
+  currency,
 }: {
   calculation: ReturnType<typeof calculateAgreement>;
   stepIndex: number;
@@ -443,6 +458,7 @@ function LiveSummary({
   onBack: () => void;
   onNext: () => void;
   onSubmit: () => void;
+  currency: string;
 }) {
   const isFinalStep = stepIndex === steps.length - 1;
   return (
@@ -450,15 +466,15 @@ function LiveSummary({
       <View style={styles.liveTopRow}>
         <View>
           <Text style={styles.liveLabel}>Total repayment</Text>
-          <Text style={styles.liveTotal}>{formatMoney(calculation.totalRepaymentAmount)}</Text>
+          <Text style={styles.liveTotal}>{formatMoney(calculation.totalRepaymentAmount, currency)}</Text>
         </View>
         <View style={styles.livePill}>
           <Text style={styles.livePillText}>{calculation.numberOfPayments || 0} payments</Text>
         </View>
       </View>
       <View style={styles.liveMetricRow}>
-        <FooterMetric label="Payment" value={formatMoney(calculation.paymentAmount)} />
-        <FooterMetric label="Interest" value={formatMoney(calculation.interestAmount)} />
+        <FooterMetric label="Payment" value={formatMoney(calculation.paymentAmount, currency)} />
+        <FooterMetric label="Interest" value={formatMoney(calculation.interestAmount, currency)} />
         <FooterMetric label="Due" value={calculation.dueDate ? formatDate(calculation.dueDate) : 'Pending'} />
       </View>
       {calculation.warnings[0] ? <Text style={styles.warningText}>{calculation.warnings[0]}</Text> : null}
@@ -478,7 +494,7 @@ function LiveSummary({
 
 function Chip({ label, active, onPress, compact }: { label: string; active: boolean; onPress: () => void; compact?: boolean }) {
   return (
-    <Pressable onPress={onPress} style={[styles.chip, compact && styles.compactChip, active && styles.chipActive]}>
+    <Pressable accessibilityRole="button" accessibilityState={{ selected: active }} onPress={onPress} style={[styles.chip, compact && styles.compactChip, active && styles.chipActive]}>
       <Text style={[styles.chipText, active && styles.chipTextActive]}>{label}</Text>
     </Pressable>
   );
@@ -502,7 +518,7 @@ function FooterMetric({ label, value }: { label: string; value: string }) {
   );
 }
 
-function ScheduleRow({ payment, isFinal, showGap }: { payment: ScheduledPayment; isFinal: boolean; showGap: boolean }) {
+function ScheduleRow({ payment, currency, isFinal, showGap }: { payment: ScheduledPayment; currency: string; isFinal: boolean; showGap: boolean }) {
   return (
     <>
       {showGap ? <Text style={styles.scheduleGap}>...</Text> : null}
@@ -512,7 +528,7 @@ function ScheduleRow({ payment, isFinal, showGap }: { payment: ScheduledPayment;
           <Text style={styles.scheduleDate}>{formatDate(payment.due_date)}</Text>
         </View>
         <View style={styles.scheduleAmountWrap}>
-          <Text style={styles.scheduleAmount}>{formatMoney(payment.amount)}</Text>
+          <Text style={styles.scheduleAmount}>{formatMoney(payment.amount, currency)}</Text>
           {isFinal ? <Text style={styles.finalLabel}>Final</Text> : null}
         </View>
       </View>

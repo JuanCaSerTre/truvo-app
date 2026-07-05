@@ -46,6 +46,7 @@ export default function ProfileScreen() {
 
   const displayContact = currentUser.email || currentUser.phone || 'No email added';
   const profileDetails = [currentUser.country, currentUser.currency, currentUser.timezone].filter(Boolean).join(' · ');
+  const currency = currentUser.currency || 'USD';
   const isPremium = currentUser.subscription_status !== 'free';
   const subscriptionLabel =
     currentUser.subscription_status === 'premium_yearly'
@@ -59,7 +60,7 @@ export default function ProfileScreen() {
       agreement.lenderId === currentUser.id ||
       agreement.borrowerId === currentUser.id ||
       agreement.borrowerPhone === currentUser.phone ||
-      agreement.borrowerEmail === currentUser.email,
+      agreement.borrowerEmail?.toLowerCase() === currentUser.email?.toLowerCase(),
   );
   const moneyToReceive = activeAgreements
     .filter((agreement) => agreement.lenderId === currentUser.id)
@@ -69,7 +70,7 @@ export default function ProfileScreen() {
       (agreement) =>
         agreement.borrowerId === currentUser.id ||
         agreement.borrowerPhone === currentUser.phone ||
-        agreement.borrowerEmail === currentUser.email,
+        agreement.borrowerEmail?.toLowerCase() === currentUser.email?.toLowerCase(),
     )
     .reduce((sum, agreement) => sum + getRemainingBalance(agreement, payments), 0);
   const pendingConfirmations = payments.filter((payment) => {
@@ -229,8 +230,8 @@ export default function ProfileScreen() {
         </View>
         <View style={styles.metricGrid}>
           <MetricTile label="Active agreements" value={String(currentUserAgreements.length)} />
-          <MetricTile label="To receive" value={formatMoney(moneyToReceive)} highlight />
-          <MetricTile label="To pay" value={formatMoney(moneyToPay)} />
+          <MetricTile label="To receive" value={formatMoney(moneyToReceive, currency)} highlight />
+          <MetricTile label="To pay" value={formatMoney(moneyToPay, currency)} />
           <MetricTile label="Pending confirmations" value={String(pendingConfirmations)} />
         </View>
       </View>
@@ -393,6 +394,7 @@ function OptionGroup<Value extends string>({
           <Pressable
             key={option.value}
             accessibilityRole="button"
+            accessibilityState={{ selected: value === option.value }}
             onPress={() => onChange(option.value)}
             style={[styles.optionButton, value === option.value && styles.optionButtonActive]}
           >

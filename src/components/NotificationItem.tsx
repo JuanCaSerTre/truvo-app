@@ -9,7 +9,7 @@ import { getRelativeTime, isImportantNotification, notificationMeta } from '@/ut
 export type NotificationAction = {
   label: string;
   variant?: 'primary' | 'secondary' | 'outline' | 'danger';
-  onPress: () => void;
+  onPress: () => void | Promise<void>;
 };
 
 interface Props {

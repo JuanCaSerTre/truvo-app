@@ -1,10 +1,16 @@
 import { SubscriptionStatus } from '@/types/models';
 
+export type SubscriptionCheckoutResult = {
+  checkoutUrl?: string;
+  status?: SubscriptionStatus;
+  message?: string;
+};
+
 export const subscriptionService = {
-  async startStripeCheckout(plan: 'monthly' | 'yearly'): Promise<{ checkoutUrl?: string; status: SubscriptionStatus }> {
+  async startStripeCheckout(plan: 'monthly' | 'yearly'): Promise<SubscriptionCheckoutResult> {
     console.log('TODO: create Stripe checkout session', plan);
     return {
-      status: plan === 'monthly' ? 'premium_monthly' : 'premium_yearly',
+      message: 'Stripe checkout is not configured in this build.',
     };
   },
 

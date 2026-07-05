@@ -72,6 +72,7 @@ const statusLabel = (status: string) => status.replace(/_/g, ' ');
 
 export default function HomeDashboard() {
   const { agreements, currentUser, payments, notifications, timelineEvents, users, syncing, syncData } = useTruvoStore();
+  const currency = currentUser.currency || 'USD';
   const dashboard = useMemo(() => {
     const userAgreements = agreements.filter((agreement) => isUserAgreement(agreement, currentUser));
     const activeAgreements = userAgreements.filter((agreement) => agreement.status === 'active');
@@ -165,7 +166,7 @@ export default function HomeDashboard() {
         id: `payment-${pendingPayment.id}`,
         icon: 'hourglass-outline',
         title: 'Payment waiting confirmation',
-        description: `${formatMoney(pendingPayment.amount)} is waiting for your confirmation.`,
+        description: `${formatMoney(pendingPayment.amount, currency)} is waiting for your confirmation.`,
         tone: 'warning',
         onPress: () => router.push(`/payment-confirmation/${pendingPayment.id}`),
       });
@@ -177,7 +178,7 @@ export default function HomeDashboard() {
         id: `tomorrow-${dueTomorrow.id}`,
         icon: 'calendar-outline',
         title: 'Payment due tomorrow',
-        description: `${dueTomorrow.direction} ${formatMoney(dueTomorrow.amount)} with ${dueTomorrow.person}.`,
+        description: `${dueTomorrow.direction} ${formatMoney(dueTomorrow.amount, currency)} with ${dueTomorrow.person}.`,
         tone: 'warning',
         onPress: () => router.push(`/payment-schedule/${dueTomorrow.agreementId}` as never),
       });
@@ -201,14 +202,14 @@ export default function HomeDashboard() {
         id: `rejected-${rejectedPayment.id}`,
         icon: 'alert-circle-outline',
         title: 'Rejected payment',
-        description: `${formatMoney(rejectedPayment.amount)} was rejected and needs follow-up.`,
+        description: `${formatMoney(rejectedPayment.amount, currency)} was rejected and needs follow-up.`,
         tone: 'danger',
         onPress: () => router.push(`/payment-confirmation/${rejectedPayment.id}`),
       });
     }
 
     return items.slice(0, 4);
-  }, [currentUser, dashboard.activeAgreements, dashboard.userAgreements, payments, upcomingPayments, users]);
+  }, [currency, currentUser, dashboard.activeAgreements, dashboard.userAgreements, payments, upcomingPayments, users]);
 
   const recentActivity = useMemo(
     () =>
@@ -274,9 +275,9 @@ export default function HomeDashboard() {
       <DashboardHeader name={currentUser.name} unread={notifications.some((item) => item.userId === currentUser.id && !item.read)} onNotifications={() => router.push('/notifications')} />
 
       <DashboardSummaryCard
-        toReceive={formatMoney(dashboard.toReceive)}
-        toPay={formatMoney(dashboard.toPay)}
-        netPosition={formatMoney(dashboard.netPosition)}
+        toReceive={formatMoney(dashboard.toReceive, currency)}
+        toPay={formatMoney(dashboard.toPay, currency)}
+        netPosition={formatMoney(dashboard.netPosition, currency)}
       />
 
       <View style={styles.quickActionsGrid}>
@@ -305,7 +306,7 @@ export default function HomeDashboard() {
             <UpcomingPaymentCard
               key={payment.id}
               person={payment.person}
-              amount={formatMoney(payment.amount)}
+              amount={formatMoney(payment.amount, currency)}
               date={formatDate(payment.date)}
               direction={payment.direction}
               status={statusLabel(payment.status)}
@@ -336,10 +337,10 @@ export default function HomeDashboard() {
 
       <DashboardSection title="Financial Insights">
         <View style={styles.cardGrid}>
-          <InsightCard label="You have received" value={formatMoney(dashboard.confirmedReceived)} tone="success" />
-          <InsightCard label="You have paid" value={formatMoney(dashboard.confirmedPaid)} tone="warning" />
+          <InsightCard label="You have received" value={formatMoney(dashboard.confirmedReceived, currency)} tone="success" />
+          <InsightCard label="You have paid" value={formatMoney(dashboard.confirmedPaid, currency)} tone="warning" />
           <InsightCard label="Collection Rate" value={`${dashboard.collectionRate}%`} tone="info" />
-          <InsightCard label="Average Weekly Payment" value={formatMoney(dashboard.averageWeeklyPayment)} tone="neutral" />
+          <InsightCard label="Average Weekly Payment" value={formatMoney(dashboard.averageWeeklyPayment, currency)} tone="neutral" />
         </View>
       </DashboardSection>
 
