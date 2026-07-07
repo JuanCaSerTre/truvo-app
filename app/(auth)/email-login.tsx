@@ -8,6 +8,7 @@ import { authService } from '@/services/authService';
 import { onboardingService } from '@/services/onboardingService';
 import { useTruvoStore } from '@/hooks/useTruvoStore';
 import { colors, radii, spacing, typography } from '@/constants/theme';
+import { isValidEmail, normalizeEmail } from '@/utils/validation';
 
 type AuthMode = 'sign_in' | 'sign_up';
 
@@ -21,9 +22,9 @@ export default function EmailLoginScreen() {
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
 
-  const submit = async () => {
-    const normalizedEmail = email.trim().toLowerCase();
-    if (!normalizedEmail.includes('@')) {
+	  const submit = async () => {
+	    const normalizedEmail = normalizeEmail(email);
+	    if (!isValidEmail(normalizedEmail)) {
       Alert.alert('Enter a valid email');
       return;
     }
@@ -66,9 +67,9 @@ export default function EmailLoginScreen() {
     }
   };
 
-  const resendConfirmation = async () => {
-    const normalizedEmail = email.trim().toLowerCase();
-    if (!normalizedEmail.includes('@')) {
+	  const resendConfirmation = async () => {
+	    const normalizedEmail = normalizeEmail(email);
+	    if (!isValidEmail(normalizedEmail)) {
       Alert.alert('Enter a valid email');
       return;
     }

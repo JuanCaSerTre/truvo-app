@@ -101,6 +101,13 @@ export const pushNotificationService = {
     return { registered: true, token };
   },
 
+  async deleteRegisteredDevices(userId: string): Promise<void> {
+    if (!supabase) return;
+    const { error } = await supabase.from('device_push_tokens').delete().eq('user_id', userId);
+    if (isMissingDeviceTokenTable(error)) return;
+    if (error) throw error;
+  },
+
   subscribeToNotificationResponses(onResponse: (data: Record<string, unknown>) => void): () => void {
     if (shouldSkipRemotePush()) return () => {};
 

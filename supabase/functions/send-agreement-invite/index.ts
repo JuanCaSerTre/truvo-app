@@ -104,6 +104,14 @@ const optionalServiceRequest = async <T>(url: string, serviceRoleKey: string, fa
 
 const normalizeEmail = (value: string) => value.trim().toLowerCase();
 
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
 const sendExpoPush = async (tokens: string[], title: string, body: string, data: Record<string, string>) => {
   const messages = tokens
     .filter((token) => /^Expo(nent)?PushToken\[[^\]]+\]$/.test(token))
@@ -258,12 +266,14 @@ const renderText = (agreement: AgreementRow, lender: ProfileRow, inviteLink: str
 };
 
 const renderHtml = (agreement: AgreementRow, lender: ProfileRow, inviteLink: string, currency: string) => {
-  const borrowerName = agreement.borrower_name || 'there';
+  const borrowerName = escapeHtml(agreement.borrower_name || 'there');
+  const lenderName = escapeHtml(lender.name);
+  const safeInviteLink = escapeHtml(inviteLink);
   return `
     <div style="font-family: Arial, sans-serif; color: #0F172A; line-height: 1.5; max-width: 560px;">
       <h1 style="font-size: 24px; margin: 0 0 16px;">Review your TRUVO agreement</h1>
       <p>Hi ${borrowerName},</p>
-      <p><strong>${lender.name}</strong> sent you a TRUVO agreement request.</p>
+      <p><strong>${lenderName}</strong> sent you a TRUVO agreement request.</p>
       <div style="border: 1px solid #E2E8F0; border-radius: 12px; padding: 16px; margin: 20px 0;">
         <p style="margin: 0 0 8px;"><strong>Principal:</strong> ${formatMoney(agreement.principal_amount, currency)}</p>
         <p style="margin: 0 0 8px;"><strong>Total repayment:</strong> ${formatMoney(agreement.total_repayment_amount, currency)}</p>
@@ -271,7 +281,7 @@ const renderHtml = (agreement: AgreementRow, lender: ProfileRow, inviteLink: str
         <p style="margin: 0;"><strong>Due date:</strong> ${formatDate(agreement.due_date)}</p>
       </div>
       <p>
-        <a href="${inviteLink}" style="display: inline-block; background: #0F172A; color: #FFFFFF; text-decoration: none; padding: 12px 18px; border-radius: 10px; font-weight: 700;">
+        <a href="${safeInviteLink}" style="display: inline-block; background: #0F172A; color: #FFFFFF; text-decoration: none; padding: 12px 18px; border-radius: 10px; font-weight: 700;">
           Review agreement
         </a>
       </p>

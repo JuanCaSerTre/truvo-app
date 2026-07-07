@@ -6,6 +6,7 @@ import { PrimaryButton } from '@/components/PrimaryButton';
 import { ScreenContainer } from '@/components/ScreenContainer';
 import { colors, radii, spacing, typography } from '@/constants/theme';
 import { useTruvoStore } from '@/hooks/useTruvoStore';
+import { isValidEmail, normalizeEmail } from '@/utils/validation';
 
 export default function InviteContactScreen() {
   const { createContact } = useTruvoStore();
@@ -13,9 +14,9 @@ export default function InviteContactScreen() {
   const [contactName, setContactName] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const save = async () => {
-    const normalizedEmail = contactEmail.trim().toLowerCase();
-    if (!normalizedEmail.includes('@')) {
+	  const save = async () => {
+	    const normalizedEmail = normalizeEmail(contactEmail);
+	    if (!isValidEmail(normalizedEmail)) {
       Alert.alert('Enter a valid email');
       return;
     }

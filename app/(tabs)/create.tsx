@@ -9,6 +9,7 @@ import { useTruvoStore } from '@/hooks/useTruvoStore';
 import { PaymentFrequency, ScheduledPayment } from '@/types/models';
 import { calculateAgreement, InterestType } from '@/utils/agreementCalculator';
 import { formatDate, formatMoney, toNumber } from '@/utils/money';
+import { isValidEmail, normalizeEmail } from '@/utils/validation';
 
 type CalculationMode = 'payment_amount' | 'number_of_payments' | 'total_repayment' | 'due_date';
 
@@ -33,7 +34,6 @@ const isIsoDate = (value: string) => {
   const date = new Date(year, month - 1, day);
   return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
 };
-const isValidEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 const normalizePhone = (value: string) => value.replace(/\D/g, '');
 
 export default function CreateAgreementScreen() {
@@ -105,7 +105,7 @@ export default function CreateAgreementScreen() {
       .slice(0, 4);
   }, [borrowerEmail, contacts]);
 
-  const normalizedBorrowerEmail = borrowerEmail.trim().toLowerCase();
+  const normalizedBorrowerEmail = normalizeEmail(borrowerEmail);
   const normalizedBorrowerPhone = normalizePhone(borrowerPhone);
   const normalizedCurrentUserPhone = normalizePhone(currentUser.phone);
   const borrowerEmailIsValid = isValidEmail(normalizedBorrowerEmail);

@@ -1,16 +1,15 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { User, UserProfileInput } from '@/types/models';
-import { currentUser } from '@/data/mockData';
 import { supabase } from '@/lib/supabase';
+import { SUPABASE_AUTH_STORAGE_KEY, supabaseAuthStorage } from '@/lib/supabaseStorage';
+import { pushNotificationService } from './pushNotificationService';
 
-const fallbackUser = (email: string, name?: string): User => ({
-  ...currentUser,
-  id: `local-${email.toLowerCase()}`,
-  email,
-  name: name?.trim() || email.split('@')[0] || currentUser.name,
-});
+const requireSupabase = () => {
+  if (!supabase) throw new Error('Authentication is not configured for this build.');
+  return supabase;
+};
 
-const clearLocalAuthStorage = async () => {
+const clearLocalAuthStorage = async (userId?: string) => {
   const storage = globalThis.localStorage;
   if (storage) {
     const authKeys = Array.from({ length: storage.length }, (_, index) => storage.key(index)).filter(
@@ -23,6 +22,12 @@ const clearLocalAuthStorage = async () => {
   const asyncKeys = await AsyncStorage.getAllKeys();
   const authKeys = asyncKeys.filter((key) => key.startsWith('sb-') || key.includes('supabase.auth'));
   if (authKeys.length) await AsyncStorage.multiRemove(authKeys);
+  await supabaseAuthStorage.removeItem(SUPABASE_AUTH_STORAGE_KEY);
+
+  if (userId) {
+    await AsyncStorage.removeItem(`truvo:onboardingComplete:${userId}`);
+    globalThis.localStorage?.removeItem(`truvo:${userId}:notificationSettings`);
+  }
 };
 
 const mapProfileToUser = (data: {
@@ -57,13 +62,13 @@ const profileSelect =
   'id, name, phone, email, country, currency, timezone, contact_preference, user_role, avatar_url, subscription_status, created_at';
 
 const getOrCreateProfile = async (email: string, name?: string): Promise<User> => {
-  if (!supabase) return fallbackUser(email, name);
-  const { data: authData, error: userError } = await supabase.auth.getUser();
+  const client = requireSupabase();
+  const { data: authData, error: userError } = await client.auth.getUser();
   if (userError) throw userError;
   const authUser = authData.user;
   if (!authUser) throw new Error('No authenticated Supabase user found.');
 
-  const { data: existingProfile, error: existingProfileError } = await supabase
+  const { data: existingProfile, error: existingProfileError } = await client
     .from('profiles')
     .select(profileSelect)
     .eq('id', authUser.id)
@@ -85,7 +90,7 @@ const getOrCreateProfile = async (email: string, name?: string): Promise<User> =
     subscription_status: 'free' as const,
   };
 
-  const { data, error } = await supabase
+  const { data, error } = await client
     .from('profiles')
     .insert(profile)
     .select(profileSelect)
@@ -98,9 +103,9 @@ const getOrCreateProfile = async (email: string, name?: string): Promise<User> =
 
 export const authService = {
   async signUpWithPassword(email: string, password: string, name: string): Promise<{ user?: User; needsEmailConfirmation: boolean }> {
-    if (!supabase) return { user: fallbackUser(email, name), needsEmailConfirmation: false };
+    const client = requireSupabase();
 
-    const { data, error } = await supabase.auth.signUp({
+    const { data, error } = await client.auth.signUp({
       email,
       password,
       options: {
@@ -117,16 +122,16 @@ export const authService = {
   },
 
   async signInWithPassword(email: string, password: string): Promise<User> {
-    if (!supabase) return fallbackUser(email);
+    const client = requireSupabase();
 
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { error } = await client.auth.signInWithPassword({ email, password });
     if (error) throw error;
     return getOrCreateProfile(email);
   },
 
   async resendSignupConfirmation(email: string): Promise<void> {
-    if (!supabase) return;
-    const { error } = await supabase.auth.resend({
+    const client = requireSupabase();
+    const { error } = await client.auth.resend({
       type: 'signup',
       email,
     });
@@ -155,14 +160,14 @@ export const authService = {
     };
 
     if (!normalized.name) throw new Error('Name is required.');
-    if (!supabase) return { ...currentUser, ...normalized };
+    const client = requireSupabase();
 
-    const { data: authData, error: userError } = await supabase.auth.getUser();
+    const { data: authData, error: userError } = await client.auth.getUser();
     if (userError) throw userError;
     const authUser = authData.user;
     if (!authUser?.email) throw new Error('No authenticated Supabase user found.');
 
-    const { data, error } = await supabase
+    const { data, error } = await client
       .from('profiles')
       .update({
         name: normalized.name,
@@ -182,21 +187,20 @@ export const authService = {
   },
 
   async sendOtp(email: string): Promise<{ requestId: string }> {
-    if (supabase) {
-      const { error } = await supabase.auth.signInWithOtp({
-        email,
-        options: {
-          shouldCreateUser: true,
-        },
-      });
-      if (error) throw error;
-    }
+    const client = requireSupabase();
+    const { error } = await client.auth.signInWithOtp({
+      email,
+      options: {
+        shouldCreateUser: true,
+      },
+    });
+    if (error) throw error;
     return { requestId: `otp-${Date.now()}` };
   },
 
   async verifyOtp(email: string, code: string): Promise<User> {
-    if (!supabase) return fallbackUser(email);
-    const { error } = await supabase.auth.verifyOtp({
+    const client = requireSupabase();
+    const { error } = await client.auth.verifyOtp({
       email,
       token: code,
       type: 'email',
@@ -206,13 +210,21 @@ export const authService = {
   },
 
   async signOut(): Promise<void> {
+    let userId: string | undefined;
     try {
       if (supabase) {
+        const { data } = await supabase.auth.getUser();
+        userId = data.user?.id;
+        if (userId) {
+          await pushNotificationService.deleteRegisteredDevices(userId).catch((error) => {
+            console.warn('Unable to delete push tokens during logout', error);
+          });
+        }
         const { error } = await supabase.auth.signOut();
         if (error) throw error;
       }
     } finally {
-      await clearLocalAuthStorage();
+      await clearLocalAuthStorage(userId);
     }
   },
 };

@@ -33,6 +33,7 @@ import {
 } from '@/types/models';
 import { getConfirmedPayments, getRemainingBalance, shouldCompleteAgreement } from '@/utils/agreementRules';
 import { formatMoney } from '@/utils/money';
+import { isValidEmail } from '@/utils/validation';
 
 interface TruvoStore {
   currentUser: User;
@@ -140,6 +141,18 @@ type PushNotificationData = {
   type?: unknown;
 };
 
+const allowedNotificationRoute = (data: PushNotificationData) => {
+  if (data.type === 'new_agreement_request' && typeof data.agreementId === 'string') {
+    return `/agreement-request/${encodeURIComponent(data.agreementId)}`;
+  }
+
+  if (typeof data.route !== 'string') return undefined;
+  if (/^\/(agreement|agreement-request|payment-confirmation|payment-schedule)\/[A-Za-z0-9-]+$/.test(data.route)) {
+    return data.route;
+  }
+  return undefined;
+};
+
 const loadNotificationSettings = (userId: string) => {
   try {
     const stored = globalThis.localStorage?.getItem(notificationSettingsStorageKey(userId));
@@ -233,12 +246,9 @@ export function TruvoProvider({ children }: PropsWithChildren) {
 
   useEffect(() => {
     return pushNotificationService.subscribeToNotificationResponses((data: PushNotificationData) => {
-      if (typeof data.route === 'string' && data.route.startsWith('/')) {
-        router.push(data.route as never);
-        return;
-      }
-      if (data.type === 'new_agreement_request' && typeof data.agreementId === 'string') {
-        router.push(`/agreement-request/${data.agreementId}` as never);
+      const route = allowedNotificationRoute(data);
+      if (route) {
+        router.push(route as never);
       }
     });
   }, []);
@@ -297,7 +307,7 @@ export function TruvoProvider({ children }: PropsWithChildren) {
     const borrowerEmail = input.borrowerEmail?.trim().toLowerCase();
     const borrowerPhone = normalizePhone(input.borrowerPhone);
     const currentUserPhone = normalizePhone(currentUser.phone);
-    if (!borrowerEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(borrowerEmail)) {
+    if (!borrowerEmail || !isValidEmail(borrowerEmail)) {
       throw new Error('Add a valid borrower email.');
     }
     if (borrowerEmail === currentUser.email?.toLowerCase() || Boolean(borrowerPhone && borrowerPhone === currentUserPhone)) {
@@ -614,7 +624,7 @@ export function TruvoProvider({ children }: PropsWithChildren) {
     return updatedUser;
   };
 
-  const clearUserSessionData = () => {
+  const clearUserSessionData = useCallback(() => {
     setCurrentUser(seedCurrentUser);
     setAgreementState(isSupabaseConfigured ? [] : seedAgreements);
     setPaymentState(isSupabaseConfigured ? [] : seedPayments);
@@ -622,16 +632,16 @@ export function TruvoProvider({ children }: PropsWithChildren) {
     setNotificationSettings(loadNotificationSettings(seedCurrentUser.id));
     setContactState([]);
     setTimelineState(isSupabaseConfigured ? [] : seedTimeline);
-  };
+  }, []);
 
-  const setUserFromAuth = (user: User) => {
+  const setUserFromAuth = useCallback((user: User) => {
     setCurrentUser(user);
     setAgreementState([]);
     setPaymentState([]);
     setNotificationState([]);
     setContactState([]);
     setTimelineState([]);
-  };
+  }, []);
 
   const value = {
     currentUser,
