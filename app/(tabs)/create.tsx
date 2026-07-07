@@ -177,6 +177,8 @@ export default function CreateAgreementScreen() {
         const invite = await sendAgreementInvite(agreement.id);
         if (invite.status === 'skipped') {
           Alert.alert('Agreement created', invite.message);
+        } else {
+          Alert.alert('Agreement sent', invite.message || 'The borrower invitation email was sent.');
         }
       } catch (inviteError) {
         Alert.alert(

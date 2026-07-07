@@ -4,12 +4,20 @@ import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { ScreenContainer } from '@/components/ScreenContainer';
 import { PrimaryButton } from '@/components/PrimaryButton';
+import { useTruvoStore } from '@/hooks/useTruvoStore';
+import { onboardingService } from '@/services/onboardingService';
 import { colors, radii, spacing, typography } from '@/constants/theme';
 
 const legal =
   'TRUVO does not provide loans or financial services. TRUVO only provides tools to record and track agreements between individuals. Users are responsible for their own agreements.';
 
 export default function OnboardingScreen() {
+  const { currentUser } = useTruvoStore();
+  const enterApp = async () => {
+    await onboardingService.markCompleted(currentUser.id);
+    router.replace('/(tabs)');
+  };
+
   return (
     <ScreenContainer>
       <Text style={styles.title}>How TRUVO works</Text>
@@ -29,7 +37,7 @@ export default function OnboardingScreen() {
       <View style={styles.disclaimer}>
         <Text style={styles.disclaimerText}>{legal}</Text>
       </View>
-      <PrimaryButton label="Enter TRUVO" onPress={() => router.replace('/(tabs)')} />
+      <PrimaryButton label="Enter TRUVO" onPress={enterApp} />
     </ScreenContainer>
   );
 }

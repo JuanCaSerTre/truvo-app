@@ -1,55 +1,57 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
-import { colors, spacing, typography } from '@/constants/theme';
+import { Image, StyleSheet, View } from 'react-native';
 
 interface Props {
   light?: boolean;
+  markOnly?: boolean;
+  size?: 'sm' | 'md' | 'lg';
 }
 
-export function TruvoWordmark({ light }: Props) {
-  const textColor = light ? '#FFFFFF' : colors.primary;
+const wordmark = require('../../assets/splash.png');
+const mark = require('../../assets/icon.png');
+
+export function TruvoWordmark({ markOnly, size = 'md' }: Props) {
+  const imageStyle = markOnly ? markStyles[size] : wordmarkStyles[size];
+
   return (
-    <View style={styles.row}>
-      <Text style={[styles.text, { color: textColor }]}>TRU</Text>
-      <View style={styles.vMark}>
-        <View style={[styles.hand, styles.left]} />
-        <View style={[styles.hand, styles.right]} />
-      </View>
-      <Text style={[styles.text, { color: textColor }]}>O</Text>
+    <View style={styles.container}>
+      <Image source={markOnly ? mark : wordmark} style={imageStyle} resizeMode="contain" />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  row: {
-    flexDirection: 'row',
+  container: {
     alignItems: 'center',
-    gap: spacing.xs,
   },
-  text: {
-    fontSize: typography.title,
-    fontWeight: '900',
-    letterSpacing: 0,
+});
+
+const wordmarkStyles = StyleSheet.create({
+  sm: {
+    width: 132,
+    height: 54,
   },
-  vMark: {
-    width: 30,
-    height: 30,
-    position: 'relative',
+  md: {
+    width: 184,
+    height: 74,
   },
-  hand: {
-    position: 'absolute',
-    bottom: 2,
-    width: 8,
-    height: 30,
-    borderRadius: 6,
-    backgroundColor: colors.secondary,
+  lg: {
+    width: 248,
+    height: 100,
   },
-  left: {
-    left: 7,
-    transform: [{ rotate: '-28deg' }],
+});
+
+const markStyles = StyleSheet.create({
+  sm: {
+    width: 48,
+    height: 48,
   },
-  right: {
-    right: 7,
-    transform: [{ rotate: '28deg' }],
+  md: {
+    width: 72,
+    height: 72,
+  },
+  lg: {
+    width: 104,
+    height: 104,
   },
 });

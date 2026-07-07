@@ -4,6 +4,7 @@ import { router } from 'expo-router';
 import { colors, spacing, typography } from '@/constants/theme';
 import { TruvoWordmark } from '@/components/TruvoWordmark';
 import { authService } from '@/services/authService';
+import { onboardingService } from '@/services/onboardingService';
 import { useTruvoStore } from '@/hooks/useTruvoStore';
 
 export default function SplashScreen() {
@@ -12,13 +13,19 @@ export default function SplashScreen() {
   useEffect(() => {
     let mounted = true;
     const restoreSession = async () => {
-      const user = await authService.getCurrentUser();
-      if (!mounted) return;
-      if (user) {
-        setUserFromAuth(user);
-        router.replace('/(tabs)');
-        return;
+      try {
+        const user = await authService.getCurrentUser();
+        if (!mounted) return;
+        if (user) {
+          setUserFromAuth(user);
+          const completedOnboarding = await onboardingService.hasCompleted(user.id);
+          router.replace(completedOnboarding ? '/(tabs)' : '/(auth)/onboarding');
+          return;
+        }
+      } catch (error) {
+        console.warn('Unable to restore session', error);
       }
+      if (!mounted) return;
       router.replace('/(auth)/welcome');
     };
     const timer = setTimeout(() => {

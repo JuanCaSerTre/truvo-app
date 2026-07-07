@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import 'expo-sqlite/localStorage/install';
 import { createClient } from '@supabase/supabase-js';
 
@@ -12,6 +13,7 @@ export const supabase = isSupabaseConfigured
         autoRefreshToken: true,
         persistSession: true,
         detectSessionInUrl: false,
+        storage: AsyncStorage,
       },
     })
   : null;

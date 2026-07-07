@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Alert, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { EmptyState } from '@/components/EmptyState';
@@ -15,15 +15,22 @@ import { formatDate, formatMoney } from '@/utils/money';
 
 export default function AgreementDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { agreements, currentUser, payments, timelineEvents, sendAgreementInvite, updateAgreementStatus } = useTruvoStore();
+  const { agreements, currentUser, payments, timelineEvents, sendAgreementInvite, syncing, syncData, updateAgreementStatus } = useTruvoStore();
   const [sendingInvite, setSendingInvite] = useState(false);
   const [statusAction, setStatusAction] = useState<'active' | 'rejected' | 'cancelled' | null>(null);
   const agreement = agreements.find((item) => item.id === id);
 
+  useEffect(() => {
+    void syncData();
+  }, [id, syncData]);
+
   if (!agreement) {
     return (
-      <ScreenContainer>
-        <EmptyState title="Agreement not found" message="This agreement may have moved or is no longer available." />
+      <ScreenContainer refreshing={syncing} onRefresh={syncData}>
+        <EmptyState
+          title={syncing ? 'Loading agreement' : 'Agreement not found'}
+          message={syncing ? 'Checking for the latest agreement data.' : 'Pull down to refresh if this agreement was just sent.'}
+        />
       </ScreenContainer>
     );
   }
@@ -35,7 +42,7 @@ export default function AgreementDetailsScreen() {
     agreement.borrowerPhone === currentUser.phone;
   if (!isLender && !isBorrower) {
     return (
-      <ScreenContainer>
+      <ScreenContainer refreshing={syncing} onRefresh={syncData}>
         <EmptyState title="Agreement not available" message="This agreement is not linked to your account." />
       </ScreenContainer>
     );
@@ -78,7 +85,7 @@ export default function AgreementDetailsScreen() {
 
   if (canRespondToPending) {
     return (
-      <ScreenContainer>
+      <ScreenContainer refreshing={syncing} onRefresh={syncData}>
         <View style={styles.header}>
           <Text style={styles.title}>Review agreement</Text>
           <StatusBadge status={agreement.status} />
@@ -106,7 +113,7 @@ export default function AgreementDetailsScreen() {
   }
 
   return (
-    <ScreenContainer>
+    <ScreenContainer refreshing={syncing} onRefresh={syncData}>
       <View style={styles.header}>
         <Text style={styles.title}>{agreement.borrowerName || agreement.borrowerEmail || agreement.borrowerPhone}</Text>
         <StatusBadge status={agreement.status} />

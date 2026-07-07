@@ -1,18 +1,28 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { User, UserProfileInput } from '@/types/models';
 import { currentUser } from '@/data/mockData';
 import { supabase } from '@/lib/supabase';
 
-const fallbackUser = (email: string, name?: string): User => ({ ...currentUser, email, name: name?.trim() || email.split('@')[0] || currentUser.name });
+const fallbackUser = (email: string, name?: string): User => ({
+  ...currentUser,
+  id: `local-${email.toLowerCase()}`,
+  email,
+  name: name?.trim() || email.split('@')[0] || currentUser.name,
+});
 
-const clearLocalAuthStorage = () => {
+const clearLocalAuthStorage = async () => {
   const storage = globalThis.localStorage;
-  if (!storage) return;
+  if (storage) {
+    const authKeys = Array.from({ length: storage.length }, (_, index) => storage.key(index)).filter(
+      (key): key is string => Boolean(key && (key.startsWith('sb-') || key.includes('supabase.auth'))),
+    );
 
-  const authKeys = Array.from({ length: storage.length }, (_, index) => storage.key(index)).filter(
-    (key): key is string => Boolean(key && (key.startsWith('sb-') || key.includes('supabase.auth'))),
-  );
+    authKeys.forEach((key) => storage.removeItem(key));
+  }
 
-  authKeys.forEach((key) => storage.removeItem(key));
+  const asyncKeys = await AsyncStorage.getAllKeys();
+  const authKeys = asyncKeys.filter((key) => key.startsWith('sb-') || key.includes('supabase.auth'));
+  if (authKeys.length) await AsyncStorage.multiRemove(authKeys);
 };
 
 const mapProfileToUser = (data: {
@@ -202,7 +212,7 @@ export const authService = {
         if (error) throw error;
       }
     } finally {
-      clearLocalAuthStorage();
+      await clearLocalAuthStorage();
     }
   },
 };

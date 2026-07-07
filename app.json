@@ -4,25 +4,44 @@
     "slug": "truvo",
     "scheme": "truvo",
     "version": "1.0.0",
+    "icon": "./assets/icon.png",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "splash": {
-      "backgroundColor": "#0F172A"
+      "image": "./assets/splash.png",
+      "backgroundColor": "#FFFFFF"
     },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.truvo.app"
     },
     "android": {
-      "package": "com.truvo.app"
+      "package": "com.truvo.app",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icon.png",
+        "backgroundColor": "#FFFFFF"
+      }
     },
     "plugins": [
       "expo-router",
       "expo-asset",
-      "expo-sqlite"
+      "expo-sqlite",
+      [
+        "expo-notifications",
+        {
+          "color": "#10B981"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "8361f0f2-414b-47c3-95c4-cdba3d762fe1"
+      }
+    },
+    "owner": "juancamiloserna"
   }
 }

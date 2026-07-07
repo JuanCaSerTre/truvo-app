@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -21,10 +21,16 @@ const filters: { value: Filter; icon: keyof typeof Ionicons.glyphMap; color: str
   { value: 'Active', icon: 'flash-outline', color: colors.info },
 ];
 
+const isOpenAgreement = (status: string) => status === 'pending' || status === 'active';
+
 export default function AgreementsScreen() {
   const [selected, setSelected] = useState<Filter>('All');
-  const { agreements, currentUser, payments, syncing } = useTruvoStore();
+  const { agreements, currentUser, payments, syncing, syncData } = useTruvoStore();
   const currency = currentUser.currency || 'USD';
+
+  useEffect(() => {
+    void syncData();
+  }, [syncData]);
 
   const userAgreements = useMemo(
     () =>
@@ -55,7 +61,7 @@ export default function AgreementsScreen() {
 
   const filtered = useMemo(() => {
     return userAgreements.filter((agreement) => {
-      if (selected === 'Receiving') return agreement.lenderId === currentUser.id;
+      if (selected === 'Receiving') return agreement.lenderId === currentUser.id && isOpenAgreement(agreement.status);
       if (selected === 'Paying') {
         return (
           agreement.borrowerId === currentUser.id ||
@@ -73,7 +79,7 @@ export default function AgreementsScreen() {
   const empty = getEmptyState(selected);
 
   return (
-    <ScreenContainer>
+    <ScreenContainer refreshing={syncing} onRefresh={syncData}>
       <View>
         <Text style={styles.title}>Agreements</Text>
         <Text style={styles.copy}>Know what is coming in, going out, and waiting for action.</Text>

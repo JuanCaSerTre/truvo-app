@@ -1,4 +1,4 @@
-import { Agreement, Contact, ContactInput, InviteEmailResult, Notification, NotificationSettings, Payment, PaymentInput } from '@/types/models';
+import { Agreement, Contact, ContactInput, InviteEmailResult, Notification, NotificationSettings, Payment, PaymentInput, User } from '@/types/models';
 import { supabase } from '@/lib/supabase';
 
 type AgreementRow = {
@@ -330,6 +330,23 @@ export const agreementService = {
     return notification;
   },
 
+  subscribeToNotifications(userId: string, onNotification: (notification: Notification) => void): () => void {
+    if (!supabase) return () => {};
+    const client = supabase;
+    const channel = client
+      .channel(`notifications:${userId}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${userId}` },
+        (payload) => onNotification(fromNotificationRow(payload.new as NotificationRow)),
+      )
+      .subscribe();
+
+    return () => {
+      void client.removeChannel(channel);
+    };
+  },
+
   async markNotificationRead(notificationId: string): Promise<void> {
     if (!supabase) return;
     const { error } = await supabase.from('notifications').update({ read: true }).eq('id', notificationId);
@@ -398,11 +415,17 @@ export const agreementService = {
     return this.upsertContact(contact);
   },
 
-  async syncAgreements(): Promise<{ agreements: Agreement[]; payments: Payment[]; notifications: Notification[]; contacts: Contact[] }> {
+  async syncAgreements(currentUser?: User): Promise<{ agreements: Agreement[]; payments: Payment[]; notifications: Notification[]; contacts: Contact[] }> {
     if (!supabase) {
       console.log('Supabase is not configured yet. Using seed data.');
       return { agreements: [], payments: [], notifications: [], contacts: [] };
     }
+    if (!currentUser) return { agreements: [], payments: [], notifications: [], contacts: [] };
+
+    const agreementFilters = [`lender_id.eq.${currentUser.id}`, `borrower_id.eq.${currentUser.id}`];
+    if (currentUser.email) agreementFilters.push(`borrower_email.eq.${currentUser.email.toLowerCase()}`);
+    if (currentUser.phone) agreementFilters.push(`borrower_phone.eq.${currentUser.phone}`);
+
     const [
       { data: agreementRows, error: agreementError },
       { data: paymentRows, error: paymentError },
@@ -412,10 +435,15 @@ export const agreementService = {
       supabase
         .from('agreements')
         .select('*, scheduled_payments(payment_number, due_date, amount, status)')
+        .or(agreementFilters.join(','))
         .order('created_at', { ascending: false }),
-      supabase.from('payments').select('*').order('created_at', { ascending: false }),
-      supabase.from('notifications').select('*').order('created_at', { ascending: false }),
-      supabase.from('contacts').select('*').order('contact_name', { ascending: true }),
+      supabase
+        .from('payments')
+        .select('*')
+        .or(`payer_id.eq.${currentUser.id},receiver_id.eq.${currentUser.id}`)
+        .order('created_at', { ascending: false }),
+      supabase.from('notifications').select('*').eq('user_id', currentUser.id).order('created_at', { ascending: false }),
+      supabase.from('contacts').select('*').eq('owner_id', currentUser.id).order('contact_name', { ascending: true }),
     ]);
 
     if (agreementError) throw agreementError;

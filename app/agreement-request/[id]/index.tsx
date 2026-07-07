@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Alert, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { EmptyState } from '@/components/EmptyState';
@@ -11,14 +11,21 @@ import { formatDate, formatMoney } from '@/utils/money';
 
 export default function AgreementRequestScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { agreements, currentUser, updateAgreementStatus, users } = useTruvoStore();
+  const { agreements, currentUser, syncing, syncData, updateAgreementStatus, users } = useTruvoStore();
   const [statusAction, setStatusAction] = useState<'active' | 'rejected' | null>(null);
   const agreement = agreements.find((item) => item.id === id);
 
+  useEffect(() => {
+    void syncData();
+  }, [id, syncData]);
+
   if (!agreement) {
     return (
-      <ScreenContainer>
-        <EmptyState title="Request not found" message="This agreement request is unavailable." />
+      <ScreenContainer refreshing={syncing} onRefresh={syncData}>
+        <EmptyState
+          title={syncing ? 'Loading request' : 'Request not found'}
+          message={syncing ? 'Checking for the latest agreement request.' : 'Pull down to refresh if this invite was just sent.'}
+        />
       </ScreenContainer>
     );
   }
@@ -53,7 +60,7 @@ export default function AgreementRequestScreen() {
   const isLender = agreement.lenderId === currentUser.id;
   if (!canRespond && !isLender) {
     return (
-      <ScreenContainer>
+      <ScreenContainer refreshing={syncing} onRefresh={syncData}>
         <EmptyState title="Request not available" message="This agreement request is not linked to your account." />
       </ScreenContainer>
     );
@@ -63,7 +70,7 @@ export default function AgreementRequestScreen() {
   const currency = currentUser.currency || 'USD';
 
   return (
-    <ScreenContainer>
+    <ScreenContainer refreshing={syncing} onRefresh={syncData}>
       <Text style={styles.title}>Agreement request</Text>
       <Text style={styles.copy}>
         {canRespond ? `${currentUser.name} can accept or reject this request.` : `This request is assigned to ${agreement.borrowerEmail || agreement.borrowerPhone}.`}

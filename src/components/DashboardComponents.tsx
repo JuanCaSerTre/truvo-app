@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useRef } from 'react';
-import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { colors, radii, spacing, typography } from '@/constants/theme';
 
 type Tone = 'success' | 'warning' | 'danger' | 'neutral' | 'info';
@@ -21,6 +21,8 @@ const toneTint: Record<Tone, string> = {
   info: '#DBEAFE',
 };
 
+const truvoMark = require('../../assets/icon.png');
+
 export function DashboardHeader({
   name,
   unread,
@@ -32,6 +34,7 @@ export function DashboardHeader({
 }) {
   return (
     <View style={styles.header}>
+      <Image source={truvoMark} style={styles.headerLogo} resizeMode="contain" />
       <View style={styles.headerCopy}>
         <Text style={styles.greeting}>Good day, {name.split(' ')[0]}</Text>
         <Text style={styles.headerTitle}>Financial overview</Text>
@@ -287,6 +290,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: spacing.md,
+  },
+  headerLogo: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
   },
   headerCopy: {
     flex: 1,

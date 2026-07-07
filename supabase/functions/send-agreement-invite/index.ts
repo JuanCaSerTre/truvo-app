@@ -2,6 +2,7 @@
 type AgreementRow = {
   id: string;
   lender_id: string;
+  borrower_id: string | null;
   borrower_email: string | null;
   borrower_name: string | null;
   principal_amount: number | string;
@@ -13,9 +14,19 @@ type AgreementRow = {
 };
 
 type ProfileRow = {
+  id: string;
   name: string;
   email: string | null;
   currency: string | null;
+};
+
+type DevicePushTokenRow = {
+  token: string;
+};
+
+type NotificationSettingsRow = {
+  agreement_requests: boolean;
+  push_notifications: boolean;
 };
 
 const corsHeaders = {
@@ -54,6 +65,158 @@ const getJson = async <T>(url: string, jwt: string, anonKey: string): Promise<T>
     throw new Error(message || `Request failed with ${response.status}.`);
   }
   return response.json();
+};
+
+const serviceRequest = async <T>(url: string, serviceRoleKey: string, init?: RequestInit): Promise<T> => {
+  const response = await fetch(url, {
+    ...init,
+    headers: {
+      apikey: serviceRoleKey,
+      Authorization: `Bearer ${serviceRoleKey}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=representation',
+      ...(init?.headers || {}),
+    },
+  });
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || `Service request failed with ${response.status}.`);
+  }
+  if (response.status === 204) return undefined as T;
+  return response.json();
+};
+
+const isMissingRelationError = (message: string) =>
+  message.includes('PGRST205') ||
+  message.includes('42P01') ||
+  message.toLowerCase().includes('could not find the table') ||
+  message.toLowerCase().includes('relation') && message.toLowerCase().includes('does not exist');
+
+const optionalServiceRequest = async <T>(url: string, serviceRoleKey: string, fallback: T, init?: RequestInit): Promise<T> => {
+  try {
+    return await serviceRequest<T>(url, serviceRoleKey, init);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (isMissingRelationError(message)) return fallback;
+    throw error;
+  }
+};
+
+const normalizeEmail = (value: string) => value.trim().toLowerCase();
+
+const sendExpoPush = async (tokens: string[], title: string, body: string, data: Record<string, string>) => {
+  const messages = tokens
+    .filter((token) => /^Expo(nent)?PushToken\[[^\]]+\]$/.test(token))
+    .map((token) => ({
+      to: token,
+      sound: 'default',
+      title,
+      body,
+      data,
+    }));
+  if (!messages.length) return;
+
+  const response = await fetch('https://exp.host/--/api/v2/push/send', {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Accept-Encoding': 'gzip, deflate',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(messages),
+  });
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || 'Expo push notification request failed.');
+  }
+};
+
+const notifyBorrowerAccount = async ({
+  supabaseUrl,
+  serviceRoleKey,
+  agreement,
+  lender,
+}: {
+  supabaseUrl: string;
+  serviceRoleKey?: string;
+  agreement: AgreementRow;
+  lender: ProfileRow;
+}) => {
+  if (!serviceRoleKey) return 'App notification skipped: SUPABASE_SERVICE_ROLE_KEY is not configured.';
+  if (!agreement.borrower_email) return 'App notification skipped: agreement has no borrower email.';
+
+  const borrowerEmail = normalizeEmail(agreement.borrower_email);
+  const borrowerProfiles = await serviceRequest<ProfileRow[]>(
+    `${supabaseUrl}/rest/v1/profiles?select=id,name,email,currency&email=ilike.${encodeURIComponent(borrowerEmail)}&limit=1`,
+    serviceRoleKey,
+  );
+  const borrower = borrowerProfiles[0];
+  if (!borrower) return `App notification skipped: ${borrowerEmail} does not have a TRUVO account yet.`;
+
+  if (agreement.borrower_id !== borrower.id) {
+    await serviceRequest(
+      `${supabaseUrl}/rest/v1/agreements?id=eq.${encodeURIComponent(agreement.id)}`,
+      serviceRoleKey,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ borrower_id: borrower.id }),
+      },
+    );
+  }
+
+  const settingsRows = await optionalServiceRequest<NotificationSettingsRow[]>(
+    `${supabaseUrl}/rest/v1/notification_settings?select=agreement_requests,push_notifications&user_id=eq.${encodeURIComponent(borrower.id)}&limit=1`,
+    serviceRoleKey,
+    [],
+  );
+  const settings = settingsRows[0];
+  if (settings?.agreement_requests === false) {
+    return `App notification skipped: ${borrowerEmail} has agreement notifications disabled.`;
+  }
+
+  const title = 'New agreement request';
+  const body = `${lender.name} sent you a TRUVO agreement request to review.`;
+  await serviceRequest(
+    `${supabaseUrl}/rest/v1/notifications`,
+    serviceRoleKey,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        user_id: borrower.id,
+        type: 'new_agreement_request',
+        title,
+        body,
+        read: false,
+        related_agreement_id: agreement.id,
+      }),
+    },
+  );
+
+  if (settings?.push_notifications === false) {
+    return `App notification sent to ${borrowerEmail}; push is disabled in notification settings.`;
+  }
+
+  const pushTokens = await optionalServiceRequest<DevicePushTokenRow[]>(
+    `${supabaseUrl}/rest/v1/device_push_tokens?select=token&user_id=eq.${encodeURIComponent(borrower.id)}`,
+    serviceRoleKey,
+    [],
+  );
+  const tokens = pushTokens.map((item) => item.token);
+  await sendExpoPush(
+    tokens,
+    title,
+    body,
+    {
+      agreementId: agreement.id,
+      type: 'new_agreement_request',
+      route: `/agreement-request/${agreement.id}`,
+      url: `truvo://agreement-request/${agreement.id}`,
+    },
+  );
+
+  return tokens.length
+    ? `App notification and push sent to ${borrowerEmail}.`
+    : `App notification sent to ${borrowerEmail}; no registered push token yet.`;
 };
 
 const formatMoney = (amount: number | string, currency = 'USD') =>
@@ -134,19 +297,13 @@ Deno.serve(async (request) => {
 
     const supabaseUrl = getRequiredEnv('SUPABASE_URL');
     const anonKey = getRequiredEnv('SUPABASE_ANON_KEY');
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
     const resendApiKey = Deno.env.get('RESEND_API_KEY');
     const fromEmail = Deno.env.get('INVITE_FROM_EMAIL');
 
-    if (!resendApiKey || !fromEmail) {
-      return json({
-        status: 'skipped',
-        message: 'Email provider is not configured. Set RESEND_API_KEY and INVITE_FROM_EMAIL in Supabase secrets.',
-      });
-    }
-
     const authUser = await getJson<{ id: string; email?: string }>(`${supabaseUrl}/auth/v1/user`, jwt, anonKey);
     const agreementRows = await getJson<AgreementRow[]>(
-      `${supabaseUrl}/rest/v1/agreements?select=id,lender_id,borrower_email,borrower_name,principal_amount,total_repayment_amount,number_of_payments,payment_frequency,due_date,status&id=eq.${encodeURIComponent(agreementId)}&limit=1`,
+      `${supabaseUrl}/rest/v1/agreements?select=id,lender_id,borrower_id,borrower_email,borrower_name,principal_amount,total_repayment_amount,number_of_payments,payment_frequency,due_date,status&id=eq.${encodeURIComponent(agreementId)}&limit=1`,
       jwt,
       anonKey,
     );
@@ -164,6 +321,14 @@ Deno.serve(async (request) => {
     const lender = profileRows[0] || { name: 'A TRUVO user', email: authUser.email || null, currency: 'USD' };
     const currency = lender.currency || 'USD';
     const inviteLink = buildInviteLink(agreement.id);
+    const appNotificationMessage = await notifyBorrowerAccount({ supabaseUrl, serviceRoleKey, agreement, lender });
+
+    if (!resendApiKey || !fromEmail) {
+      return json({
+        status: 'skipped',
+        message: `${appNotificationMessage} Email skipped: set RESEND_API_KEY and INVITE_FROM_EMAIL in Supabase secrets.`,
+      });
+    }
 
     const emailResponse = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -188,7 +353,7 @@ Deno.serve(async (request) => {
 
     return json({
       status: 'sent',
-      message: `Invite sent to ${agreement.borrower_email}.`,
+      message: `Invite email sent to ${agreement.borrower_email}. ${appNotificationMessage}`,
       providerMessageId: emailBody.id,
     });
   } catch (error) {

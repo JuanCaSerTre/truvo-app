@@ -5,6 +5,7 @@ import { ScreenContainer } from '@/components/ScreenContainer';
 import { FormInput } from '@/components/FormInput';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { authService } from '@/services/authService';
+import { onboardingService } from '@/services/onboardingService';
 import { useTruvoStore } from '@/hooks/useTruvoStore';
 import { colors, radii, spacing, typography } from '@/constants/theme';
 
@@ -16,6 +17,7 @@ export default function EmailLoginScreen() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
 
@@ -31,6 +33,10 @@ export default function EmailLoginScreen() {
     }
     if (password.length < 8) {
       Alert.alert('Use at least 8 characters for your password');
+      return;
+    }
+    if (mode === 'sign_up' && password !== confirmPassword) {
+      Alert.alert('Passwords do not match');
       return;
     }
 
@@ -51,7 +57,8 @@ export default function EmailLoginScreen() {
 
       const user = await authService.signInWithPassword(normalizedEmail, password);
       setUserFromAuth(user);
-      router.replace('/(tabs)');
+      const completedOnboarding = await onboardingService.hasCompleted(user.id);
+      router.replace(completedOnboarding ? '/(tabs)' : '/(auth)/onboarding');
     } catch (error) {
       Alert.alert(mode === 'sign_up' ? 'Could not create account' : 'Could not sign in', error instanceof Error ? error.message : 'Please try again.');
     } finally {
@@ -97,6 +104,9 @@ export default function EmailLoginScreen() {
         <FormInput label="Full name" value={name} onChangeText={setName} placeholder="Alex Morgan" autoCapitalize="words" />
       ) : null}
       <FormInput label="Password" value={password} onChangeText={setPassword} placeholder="At least 8 characters" secureTextEntry autoCapitalize="none" />
+      {mode === 'sign_up' ? (
+        <FormInput label="Confirm password" value={confirmPassword} onChangeText={setConfirmPassword} placeholder="Repeat your password" secureTextEntry autoCapitalize="none" />
+      ) : null}
       <PrimaryButton label={mode === 'sign_in' ? 'Sign in' : 'Create account'} onPress={submit} loading={loading} />
       {mode === 'sign_up' ? (
         <PrimaryButton label="Resend confirmation email" variant="outline" onPress={resendConfirmation} loading={resending} />

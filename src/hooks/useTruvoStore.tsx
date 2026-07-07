@@ -1,4 +1,6 @@
 import React, { createContext, PropsWithChildren, useCallback, useContext, useEffect, useState } from 'react';
+import { Alert } from 'react-native';
+import { router } from 'expo-router';
 import {
   agreements as seedAgreements,
   currentUser as seedCurrentUser,
@@ -10,6 +12,7 @@ import {
 import { agreementService } from '@/services/agreementService';
 import { authService } from '@/services/authService';
 import { isSupabaseConfigured } from '@/lib/supabase';
+import { pushNotificationService } from '@/services/pushNotificationService';
 import { SubscriptionCheckoutResult, subscriptionService } from '@/services/subscriptionService';
 import {
   Agreement,
@@ -131,6 +134,12 @@ const notificationTypeSetting: Partial<Record<Notification['type'], keyof Notifi
   system_update: 'productUpdates',
 };
 
+type PushNotificationData = {
+  route?: unknown;
+  agreementId?: unknown;
+  type?: unknown;
+};
+
 const loadNotificationSettings = (userId: string) => {
   try {
     const stored = globalThis.localStorage?.getItem(notificationSettingsStorageKey(userId));
@@ -151,18 +160,26 @@ const saveNotificationSettings = (userId: string, settings: NotificationSettings
 
 export function TruvoProvider({ children }: PropsWithChildren) {
   const [currentUser, setCurrentUser] = useState(seedCurrentUser);
-  const [agreementState, setAgreementState] = useState(seedAgreements);
-  const [paymentState, setPaymentState] = useState(seedPayments);
-  const [notificationState, setNotificationState] = useState(seedNotifications);
+  const [agreementState, setAgreementState] = useState<Agreement[]>(() => (isSupabaseConfigured ? [] : seedAgreements));
+  const [paymentState, setPaymentState] = useState<Payment[]>(() => (isSupabaseConfigured ? [] : seedPayments));
+  const [notificationState, setNotificationState] = useState<Notification[]>(() => (isSupabaseConfigured ? [] : seedNotifications));
   const [notificationSettings, setNotificationSettings] = useState(() => loadNotificationSettings(seedCurrentUser.id));
   const [contactState, setContactState] = useState<Contact[]>([]);
-  const [timelineState, setTimelineState] = useState(seedTimeline);
+  const [timelineState, setTimelineState] = useState<AgreementTimelineEvent[]>(() => (isSupabaseConfigured ? [] : seedTimeline));
   const [syncing, setSyncing] = useState(false);
 
   const syncData = useCallback(async () => {
     setSyncing(true);
     try {
-      const synced = await agreementService.syncAgreements();
+      if (isSupabaseConfigured && !isUuid(currentUser.id)) {
+        setAgreementState([]);
+        setPaymentState([]);
+        setNotificationState([]);
+        setContactState([]);
+        setTimelineState([]);
+        return;
+      }
+      const synced = await agreementService.syncAgreements(currentUser);
       if (isSupabaseConfigured || synced.agreements.length || synced.payments.length) {
         setAgreementState(synced.agreements);
         setPaymentState(synced.payments);
@@ -174,7 +191,7 @@ export function TruvoProvider({ children }: PropsWithChildren) {
     } finally {
       setSyncing(false);
     }
-  }, []);
+  }, [currentUser]);
 
   useEffect(() => {
     void syncData();
@@ -194,6 +211,38 @@ export function TruvoProvider({ children }: PropsWithChildren) {
     }
   }, [currentUser.id]);
 
+  useEffect(() => {
+    if (!isSupabaseConfigured || !isUuid(currentUser.id)) return undefined;
+    return agreementService.subscribeToNotifications(currentUser.id, (notification) => {
+      setNotificationState((items) => {
+        if (items.some((item) => item.id === notification.id)) return items;
+        return [notification, ...items];
+      });
+      if (notificationSettings.pushNotifications) {
+        Alert.alert(notification.title, notification.body);
+      }
+    });
+  }, [currentUser.id, notificationSettings.pushNotifications]);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || !isUuid(currentUser.id) || !notificationSettings.pushNotifications) return;
+    void pushNotificationService
+      .registerDevice({ userId: currentUser.id })
+      .catch((error) => console.warn('Unable to register push token', error));
+  }, [currentUser.id, notificationSettings.pushNotifications]);
+
+  useEffect(() => {
+    return pushNotificationService.subscribeToNotificationResponses((data: PushNotificationData) => {
+      if (typeof data.route === 'string' && data.route.startsWith('/')) {
+        router.push(data.route as never);
+        return;
+      }
+      if (data.type === 'new_agreement_request' && typeof data.agreementId === 'string') {
+        router.push(`/agreement-request/${data.agreementId}` as never);
+      }
+    });
+  }, []);
+
   const addTimeline = (event: Omit<AgreementTimelineEvent, 'id' | 'createdAt'>) => {
     setTimelineState((items) => [{ ...event, id: id(), createdAt: now() }, ...items]);
   };
@@ -205,6 +254,9 @@ export function TruvoProvider({ children }: PropsWithChildren) {
     const nextNotification: Notification = { ...notification, id: id(), createdAt: now(), read: false };
     if (nextNotification.userId === currentUser.id) {
       setNotificationState((items) => [nextNotification, ...items]);
+      if (notificationSettings.pushNotifications) {
+        Alert.alert(nextNotification.title, nextNotification.body);
+      }
     }
     void agreementService.createNotification(nextNotification).catch((error) => console.warn('Unable to persist notification', error));
   };
@@ -564,12 +616,21 @@ export function TruvoProvider({ children }: PropsWithChildren) {
 
   const clearUserSessionData = () => {
     setCurrentUser(seedCurrentUser);
-    setAgreementState(seedAgreements);
-    setPaymentState(seedPayments);
-    setNotificationState(seedNotifications);
+    setAgreementState(isSupabaseConfigured ? [] : seedAgreements);
+    setPaymentState(isSupabaseConfigured ? [] : seedPayments);
+    setNotificationState(isSupabaseConfigured ? [] : seedNotifications);
     setNotificationSettings(loadNotificationSettings(seedCurrentUser.id));
     setContactState([]);
-    setTimelineState(seedTimeline);
+    setTimelineState(isSupabaseConfigured ? [] : seedTimeline);
+  };
+
+  const setUserFromAuth = (user: User) => {
+    setCurrentUser(user);
+    setAgreementState([]);
+    setPaymentState([]);
+    setNotificationState([]);
+    setContactState([]);
+    setTimelineState([]);
   };
 
   const value = {
@@ -596,7 +657,7 @@ export function TruvoProvider({ children }: PropsWithChildren) {
     updateNotificationSetting,
     subscribe,
     updateCurrentUserProfile,
-    setUserFromAuth: setCurrentUser,
+    setUserFromAuth,
     clearUserSessionData,
   };
 

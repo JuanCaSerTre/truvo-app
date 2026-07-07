@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { NotificationAction, NotificationItem } from '@/components/NotificationItem';
@@ -24,8 +24,14 @@ export default function NotificationsScreen() {
     deleteNotification,
     confirmPayment,
     rejectPayment,
+    syncing,
+    syncData,
   } = useTruvoStore();
   const [selectedFilter, setSelectedFilter] = useState<NotificationFilter>('all');
+
+  useEffect(() => {
+    void syncData();
+  }, [syncData]);
 
   const userNotifications = useMemo(
     () =>
@@ -44,6 +50,10 @@ export default function NotificationsScreen() {
 
   const openNotification = (notification: Notification) => {
     markNotificationRead(notification.id);
+    if (notification.type === 'new_agreement_request' && notification.relatedAgreementId) {
+      router.push(`/agreement-request/${notification.relatedAgreementId}`);
+      return;
+    }
     if ((notification.type === 'upcoming_payment_reminder' || notification.type === 'overdue_payment_reminder') && notification.relatedAgreementId) {
       router.push(`/payment-schedule/${notification.relatedAgreementId}` as never);
       return;
@@ -128,7 +138,7 @@ export default function NotificationsScreen() {
   };
 
   return (
-    <ScreenContainer>
+    <ScreenContainer refreshing={syncing} onRefresh={syncData}>
       <View style={styles.header}>
         <View style={styles.headerCopy}>
           <Text style={styles.eyebrow}>Activity center</Text>
