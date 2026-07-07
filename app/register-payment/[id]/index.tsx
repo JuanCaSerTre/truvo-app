@@ -35,8 +35,7 @@ export default function RegisterPaymentScreen() {
   const currency = currentUser.currency || 'USD';
   const canRegisterPayment =
     agreement.borrowerId === currentUser.id ||
-    agreement.borrowerEmail?.toLowerCase() === currentUser.email?.toLowerCase() ||
-    agreement.borrowerPhone === currentUser.phone;
+    agreement.borrowerEmail?.toLowerCase() === currentUser.email?.toLowerCase();
 
   const submit = async () => {
     const parsedAmount = toNumber(amount);

@@ -15,8 +15,7 @@ export default function PaymentsScreen() {
     (agreement) =>
       agreement.status === 'active' &&
       (agreement.borrowerId === currentUser.id ||
-        agreement.borrowerEmail?.toLowerCase() === currentUser.email?.toLowerCase() ||
-        agreement.borrowerPhone === currentUser.phone),
+        agreement.borrowerEmail?.toLowerCase() === currentUser.email?.toLowerCase()),
   );
 
   return (

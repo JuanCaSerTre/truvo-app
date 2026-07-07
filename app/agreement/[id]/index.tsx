@@ -38,8 +38,7 @@ export default function AgreementDetailsScreen() {
   const isLender = agreement.lenderId === currentUser.id;
   const isBorrower =
     agreement.borrowerId === currentUser.id ||
-    agreement.borrowerEmail?.toLowerCase() === currentUser.email?.toLowerCase() ||
-    agreement.borrowerPhone === currentUser.phone;
+    agreement.borrowerEmail?.toLowerCase() === currentUser.email?.toLowerCase();
   if (!isLender && !isBorrower) {
     return (
       <ScreenContainer refreshing={syncing} onRefresh={syncData}>

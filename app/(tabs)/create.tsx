@@ -107,12 +107,9 @@ export default function CreateAgreementScreen() {
 
   const normalizedBorrowerEmail = normalizeEmail(borrowerEmail);
   const normalizedBorrowerPhone = normalizePhone(borrowerPhone);
-  const normalizedCurrentUserPhone = normalizePhone(currentUser.phone);
   const borrowerEmailIsValid = isValidEmail(normalizedBorrowerEmail);
   const borrowerPhoneIsValid = !borrowerPhone.trim() || normalizedBorrowerPhone.length >= 7;
-  const borrowerIsSelf =
-    normalizedBorrowerEmail === currentUser.email?.toLowerCase() ||
-    Boolean(normalizedBorrowerPhone && normalizedBorrowerPhone === normalizedCurrentUserPhone);
+  const borrowerIsSelf = normalizedBorrowerEmail === currentUser.email?.toLowerCase();
   const borrowerIsValid = borrowerEmailIsValid && borrowerPhoneIsValid && !borrowerIsSelf;
   const amountIsValid = calculation.principalAmount > 0 && isIsoDate(startDate);
   const repaymentIsValid = calculation.isValid;

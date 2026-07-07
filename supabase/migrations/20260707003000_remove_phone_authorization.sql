@@ -1,9 +1,3 @@
-alter table public.agreements
-  alter column borrower_phone drop not null;
-
-alter table public.agreements
-  add column if not exists borrower_email text;
-
 drop policy if exists "Agreement participants can read agreements" on public.agreements;
 create policy "Agreement participants can read agreements"
 on public.agreements for select

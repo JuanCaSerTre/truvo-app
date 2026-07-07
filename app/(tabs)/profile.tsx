@@ -59,7 +59,6 @@ export default function ProfileScreen() {
     (agreement) =>
       agreement.lenderId === currentUser.id ||
       agreement.borrowerId === currentUser.id ||
-      agreement.borrowerPhone === currentUser.phone ||
       agreement.borrowerEmail?.toLowerCase() === currentUser.email?.toLowerCase(),
   );
   const moneyToReceive = activeAgreements
@@ -69,7 +68,6 @@ export default function ProfileScreen() {
     .filter(
       (agreement) =>
         agreement.borrowerId === currentUser.id ||
-        agreement.borrowerPhone === currentUser.phone ||
         agreement.borrowerEmail?.toLowerCase() === currentUser.email?.toLowerCase(),
     )
     .reduce((sum, agreement) => sum + getRemainingBalance(agreement, payments), 0);

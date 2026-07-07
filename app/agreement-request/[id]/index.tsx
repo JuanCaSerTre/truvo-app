@@ -55,8 +55,7 @@ export default function AgreementRequestScreen() {
   };
   const canRespond =
     agreement.borrowerId === currentUser.id ||
-    agreement.borrowerEmail?.toLowerCase() === currentUser.email?.toLowerCase() ||
-    agreement.borrowerPhone === currentUser.phone;
+    agreement.borrowerEmail?.toLowerCase() === currentUser.email?.toLowerCase();
   const isLender = agreement.lenderId === currentUser.id;
   if (!canRespond && !isLender) {
     return (

@@ -185,7 +185,6 @@ to authenticated
 using (
   lender_id = auth.uid()
   or borrower_id = auth.uid()
-  or borrower_phone = (select phone from public.profiles where id = auth.uid())
   or borrower_email = (select email from public.profiles where id = auth.uid())
 );
 
@@ -200,13 +199,11 @@ to authenticated
 using (
   lender_id = auth.uid()
   or borrower_id = auth.uid()
-  or borrower_phone = (select phone from public.profiles where id = auth.uid())
   or borrower_email = (select email from public.profiles where id = auth.uid())
 )
 with check (
   lender_id = auth.uid()
   or borrower_id = auth.uid()
-  or borrower_phone = (select phone from public.profiles where id = auth.uid())
   or borrower_email = (select email from public.profiles where id = auth.uid())
 );
 
@@ -220,7 +217,6 @@ using (
       and (
         a.lender_id = auth.uid()
         or a.borrower_id = auth.uid()
-        or a.borrower_phone = (select phone from public.profiles where id = auth.uid())
         or a.borrower_email = (select email from public.profiles where id = auth.uid())
       )
   )
@@ -386,7 +382,6 @@ using (
       and (
         a.lender_id = auth.uid()
         or a.borrower_id = auth.uid()
-        or a.borrower_phone = (select phone from public.profiles where id = auth.uid())
         or a.borrower_email = (select email from public.profiles where id = auth.uid())
       )
   )

@@ -424,7 +424,6 @@ export const agreementService = {
 
     const agreementFilters = [`lender_id.eq.${currentUser.id}`, `borrower_id.eq.${currentUser.id}`];
     if (currentUser.email) agreementFilters.push(`borrower_email.eq.${currentUser.email.toLowerCase()}`);
-    if (currentUser.phone) agreementFilters.push(`borrower_phone.eq.${currentUser.phone}`);
 
     const [
       { data: agreementRows, error: agreementError },

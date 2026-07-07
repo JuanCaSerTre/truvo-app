@@ -72,7 +72,6 @@ const id = () =>
     return value.toString(16);
   });
 const now = () => new Date().toISOString();
-const normalizePhone = (value?: string) => value?.replace(/\D/g, '') || '';
 const isUuid = (value: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 
 const isPaymentForScheduledPayment = (payment: Payment, scheduledPayment: ScheduledPayment) =>
@@ -280,8 +279,7 @@ export function TruvoProvider({ children }: PropsWithChildren) {
 
   const isCurrentUserBorrower = (agreement: Agreement) =>
     agreement.borrowerId === currentUser.id ||
-    agreement.borrowerEmail?.toLowerCase() === currentUser.email?.toLowerCase() ||
-    agreement.borrowerPhone === currentUser.phone;
+    agreement.borrowerEmail?.toLowerCase() === currentUser.email?.toLowerCase();
 
   const assertCanUpdateAgreementStatus = (agreement: Agreement, status: AgreementStatus) => {
     const isLender = agreement.lenderId === currentUser.id;
@@ -305,12 +303,10 @@ export function TruvoProvider({ children }: PropsWithChildren) {
 
   const createAgreement = async (input: AgreementInput) => {
     const borrowerEmail = input.borrowerEmail?.trim().toLowerCase();
-    const borrowerPhone = normalizePhone(input.borrowerPhone);
-    const currentUserPhone = normalizePhone(currentUser.phone);
     if (!borrowerEmail || !isValidEmail(borrowerEmail)) {
       throw new Error('Add a valid borrower email.');
     }
-    if (borrowerEmail === currentUser.email?.toLowerCase() || Boolean(borrowerPhone && borrowerPhone === currentUserPhone)) {
+    if (borrowerEmail === currentUser.email?.toLowerCase()) {
       throw new Error('You cannot create an agreement with yourself.');
     }
 

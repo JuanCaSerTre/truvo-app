@@ -38,10 +38,9 @@ export default function AgreementsScreen() {
         (agreement) =>
           agreement.lenderId === currentUser.id ||
           agreement.borrowerId === currentUser.id ||
-          agreement.borrowerEmail?.toLowerCase() === currentUser.email?.toLowerCase() ||
-          agreement.borrowerPhone === currentUser.phone,
+          agreement.borrowerEmail?.toLowerCase() === currentUser.email?.toLowerCase(),
       ),
-    [agreements, currentUser.email, currentUser.id, currentUser.phone],
+    [agreements, currentUser.email, currentUser.id],
   );
 
   const metrics = useMemo(() => {
@@ -52,12 +51,11 @@ export default function AgreementsScreen() {
       .filter(
         (agreement) =>
           agreement.borrowerId === currentUser.id ||
-          agreement.borrowerEmail?.toLowerCase() === currentUser.email?.toLowerCase() ||
-          agreement.borrowerPhone === currentUser.phone,
+          agreement.borrowerEmail?.toLowerCase() === currentUser.email?.toLowerCase(),
       )
       .reduce((sum, agreement) => sum + getRemainingBalance(agreement, payments), 0);
     return { receive, pay, net: receive - pay };
-  }, [currentUser.email, currentUser.id, currentUser.phone, payments, userAgreements]);
+  }, [currentUser.email, currentUser.id, payments, userAgreements]);
 
   const filtered = useMemo(() => {
     return userAgreements.filter((agreement) => {
@@ -65,8 +63,7 @@ export default function AgreementsScreen() {
       if (selected === 'Paying') {
         return (
           agreement.borrowerId === currentUser.id ||
-          agreement.borrowerEmail?.toLowerCase() === currentUser.email?.toLowerCase() ||
-          agreement.borrowerPhone === currentUser.phone
+          agreement.borrowerEmail?.toLowerCase() === currentUser.email?.toLowerCase()
         );
       }
       if (selected === 'Pending') return agreement.status === 'pending';
@@ -74,7 +71,7 @@ export default function AgreementsScreen() {
       if (selected === 'Active') return agreement.status === 'active';
       return true;
     });
-  }, [currentUser.email, currentUser.id, currentUser.phone, selected, userAgreements]);
+  }, [currentUser.email, currentUser.id, selected, userAgreements]);
 
   const empty = getEmptyState(selected);
 

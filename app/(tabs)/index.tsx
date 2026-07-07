@@ -56,8 +56,7 @@ const daysUntil = (value: string) => {
 
 const isUserBorrower = (agreement: Agreement, user: User) =>
   agreement.borrowerId === user.id ||
-  agreement.borrowerEmail?.toLowerCase() === user.email?.toLowerCase() ||
-  agreement.borrowerPhone === user.phone;
+  agreement.borrowerEmail?.toLowerCase() === user.email?.toLowerCase();
 
 const isUserAgreement = (agreement: Agreement, user: User) => agreement.lenderId === user.id || isUserBorrower(agreement, user);
 
