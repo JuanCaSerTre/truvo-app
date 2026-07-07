@@ -7,6 +7,7 @@ import { ScreenContainer } from '@/components/ScreenContainer';
 import { colors, radii, spacing, typography } from '@/constants/theme';
 import { useTruvoStore } from '@/hooks/useTruvoStore';
 import { Notification } from '@/types/models';
+import { userSafeMessage } from '@/utils/errors';
 import {
   groupNotificationsByDate,
   isImportantNotification,
@@ -102,8 +103,8 @@ export default function NotificationsScreen() {
             try {
               await confirmPayment(notification.relatedPaymentId || '');
               markNotificationRead(notification.id);
-            } catch (error) {
-              Alert.alert('Could not confirm payment', error instanceof Error ? error.message : 'Please try again.');
+            } catch {
+              Alert.alert('Could not confirm payment', userSafeMessage('Please try again.'));
             }
           },
         },
@@ -114,8 +115,8 @@ export default function NotificationsScreen() {
             try {
               await rejectPayment(notification.relatedPaymentId || '');
               markNotificationRead(notification.id);
-            } catch (error) {
-              Alert.alert('Could not reject payment', error instanceof Error ? error.message : 'Please try again.');
+            } catch {
+              Alert.alert('Could not reject payment', userSafeMessage('Please try again.'));
             }
           },
         },

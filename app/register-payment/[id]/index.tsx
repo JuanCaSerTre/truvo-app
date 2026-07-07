@@ -9,6 +9,7 @@ import { colors, radii, spacing, typography } from '@/constants/theme';
 import { useTruvoStore } from '@/hooks/useTruvoStore';
 import { PaymentMethod } from '@/types/models';
 import { getRemainingBalance } from '@/utils/agreementRules';
+import { userSafeMessage } from '@/utils/errors';
 import { formatMoney, toNumber } from '@/utils/money';
 
 const methods: PaymentMethod[] = ['cash', 'bank_transfer', 'other'];
@@ -66,8 +67,8 @@ export default function RegisterPaymentScreen() {
       });
       Alert.alert('Payment submitted', 'The lender can now confirm this payment.');
       router.replace(`/agreement/${agreement.id}`);
-    } catch (error) {
-      Alert.alert('Could not register payment', error instanceof Error ? error.message : 'Please try again.');
+    } catch {
+      Alert.alert('Could not register payment', userSafeMessage('Please try again.'));
     } finally {
       setLoading(false);
     }

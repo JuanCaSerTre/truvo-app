@@ -11,6 +11,7 @@ import { SummaryCard } from '@/components/SummaryCard';
 import { colors, radii, spacing, typography } from '@/constants/theme';
 import { useTruvoStore } from '@/hooks/useTruvoStore';
 import { canEditAgreement, getRemainingBalance, getTotalPaid } from '@/utils/agreementRules';
+import { userSafeMessage } from '@/utils/errors';
 import { formatDate, formatMoney } from '@/utils/money';
 
 export default function AgreementDetailsScreen() {
@@ -60,8 +61,8 @@ export default function AgreementDetailsScreen() {
       setSendingInvite(true);
       const result = await sendAgreementInvite(agreement.id);
       Alert.alert(result.status === 'sent' ? 'Invite sent' : 'Invite not sent', result.message);
-    } catch (error) {
-      Alert.alert('Could not send invite', error instanceof Error ? error.message : 'Please try again.');
+    } catch {
+      Alert.alert('Could not send invite', userSafeMessage('Please try again.'));
     } finally {
       setSendingInvite(false);
     }
@@ -71,8 +72,8 @@ export default function AgreementDetailsScreen() {
       setStatusAction(status);
       await updateAgreementStatus(agreement.id, status);
       if (status === 'rejected') router.replace('/(tabs)/agreements');
-    } catch (error) {
-      Alert.alert('Could not update agreement', error instanceof Error ? error.message : 'Please try again.');
+    } catch {
+      Alert.alert('Could not update agreement', userSafeMessage('Please try again.'));
     } finally {
       setStatusAction(null);
     }

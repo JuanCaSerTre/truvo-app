@@ -8,6 +8,7 @@ import { colors, radii, spacing, typography } from '@/constants/theme';
 import { useTruvoStore } from '@/hooks/useTruvoStore';
 import { PaymentFrequency, ScheduledPayment } from '@/types/models';
 import { calculateAgreement, InterestType } from '@/utils/agreementCalculator';
+import { userSafeMessage } from '@/utils/errors';
 import { formatDate, formatMoney, toNumber } from '@/utils/money';
 import { isValidEmail, normalizeEmail } from '@/utils/validation';
 
@@ -177,15 +178,15 @@ export default function CreateAgreementScreen() {
         } else {
           Alert.alert('Agreement sent', invite.message || 'The borrower invitation email was sent.');
         }
-      } catch (inviteError) {
+      } catch {
         Alert.alert(
           'Agreement created, email not sent',
-          inviteError instanceof Error ? inviteError.message : 'Open the agreement details to resend the invite.',
+          userSafeMessage('Open the agreement details to resend the invite.'),
         );
       }
       router.push(`/agreement/${agreement.id}`);
-    } catch (error) {
-      Alert.alert('Could not create agreement', error instanceof Error ? error.message : 'Please check the details and try again.');
+    } catch {
+      Alert.alert('Could not create agreement', userSafeMessage('Please check the details and try again.'));
     } finally {
       setLoading(false);
     }

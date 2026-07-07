@@ -4,6 +4,7 @@ import { PrimaryButton } from '@/components/PrimaryButton';
 import { ScreenContainer } from '@/components/ScreenContainer';
 import { colors, radii, spacing, typography } from '@/constants/theme';
 import { useTruvoStore } from '@/hooks/useTruvoStore';
+import { userSafeMessage } from '@/utils/errors';
 
 export default function PremiumSubscriptionScreen() {
   const { currentUser, subscribe } = useTruvoStore();
@@ -18,8 +19,8 @@ export default function PremiumSubscriptionScreen() {
         return;
       }
       Alert.alert('Checkout unavailable', result.message || 'Premium checkout is not configured yet.');
-    } catch (error) {
-      Alert.alert('Could not start checkout', error instanceof Error ? error.message : 'Please try again.');
+    } catch {
+      Alert.alert('Could not start checkout', userSafeMessage('Please try again.'));
     } finally {
       setLoadingPlan(null);
     }

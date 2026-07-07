@@ -29,16 +29,30 @@ type NotificationSettingsRow = {
   push_notifications: boolean;
 };
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+const getAllowedOrigin = (request: Request) => {
+  const origin = request.headers.get('Origin');
+  const configured = Deno.env.get('INVITE_ALLOWED_ORIGINS');
+  if (!origin) return '*';
+  if (!configured) return '*';
+
+  const allowedOrigins = configured
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  return allowedOrigins.includes(origin) ? origin : '';
 };
 
-const json = (body: unknown, status = 200) =>
+const corsHeaders = (request: Request) => ({
+  'Access-Control-Allow-Origin': getAllowedOrigin(request),
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+});
+
+const json = (request: Request, body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    headers: { ...corsHeaders(request), 'Content-Type': 'application/json' },
   });
 
 const getRequiredEnv = (key: string) => {
@@ -103,6 +117,7 @@ const optionalServiceRequest = async <T>(url: string, serviceRoleKey: string, fa
 };
 
 const normalizeEmail = (value: string) => value.trim().toLowerCase();
+const isUuid = (value: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i.test(value);
 
 const escapeHtml = (value: string) =>
   value
@@ -150,8 +165,8 @@ const notifyBorrowerAccount = async ({
   agreement: AgreementRow;
   lender: ProfileRow;
 }) => {
-  if (!serviceRoleKey) return 'App notification skipped: SUPABASE_SERVICE_ROLE_KEY is not configured.';
-  if (!agreement.borrower_email) return 'App notification skipped: agreement has no borrower email.';
+  if (!serviceRoleKey) return 'App notification skipped.';
+  if (!agreement.borrower_email) return 'App notification skipped.';
 
   const borrowerEmail = normalizeEmail(agreement.borrower_email);
   const borrowerProfiles = await serviceRequest<ProfileRow[]>(
@@ -159,7 +174,7 @@ const notifyBorrowerAccount = async ({
     serviceRoleKey,
   );
   const borrower = borrowerProfiles[0];
-  if (!borrower) return `App notification skipped: ${borrowerEmail} does not have a TRUVO account yet.`;
+  if (!borrower) return 'App notification skipped.';
 
   if (agreement.borrower_id !== borrower.id) {
     await serviceRequest(
@@ -179,7 +194,7 @@ const notifyBorrowerAccount = async ({
   );
   const settings = settingsRows[0];
   if (settings?.agreement_requests === false) {
-    return `App notification skipped: ${borrowerEmail} has agreement notifications disabled.`;
+    return 'App notification skipped.';
   }
 
   const title = 'New agreement request';
@@ -201,7 +216,7 @@ const notifyBorrowerAccount = async ({
   );
 
   if (settings?.push_notifications === false) {
-    return `App notification sent to ${borrowerEmail}; push is disabled in notification settings.`;
+    return 'App notification sent.';
   }
 
   const pushTokens = await optionalServiceRequest<DevicePushTokenRow[]>(
@@ -222,9 +237,7 @@ const notifyBorrowerAccount = async ({
     },
   );
 
-  return tokens.length
-    ? `App notification and push sent to ${borrowerEmail}.`
-    : `App notification sent to ${borrowerEmail}; no registered push token yet.`;
+  return tokens.length ? 'App notification and push sent.' : 'App notification sent.';
 };
 
 const formatMoney = (amount: number | string, currency = 'USD') =>
@@ -293,16 +306,17 @@ const renderHtml = (agreement: AgreementRow, lender: ProfileRow, inviteLink: str
 };
 
 Deno.serve(async (request) => {
-  if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
-  if (request.method !== 'POST') return json({ error: 'Method not allowed.' }, 405);
+  const headers = corsHeaders(request);
+  if (request.method === 'OPTIONS') return new Response('ok', { status: headers['Access-Control-Allow-Origin'] ? 200 : 403, headers });
+  if (request.method !== 'POST') return json(request, { error: 'Method not allowed.' }, 405);
 
   try {
     const jwt = getJwt(request);
-    if (!jwt) return json({ error: 'Missing authorization token.' }, 401);
+    if (!jwt) return json(request, { error: 'Missing authorization token.' }, 401);
 
     const { agreementId } = await request.json();
-    if (!agreementId || typeof agreementId !== 'string') {
-      return json({ error: 'agreementId is required.' }, 400);
+    if (!agreementId || typeof agreementId !== 'string' || !isUuid(agreementId)) {
+      return json(request, { error: 'A valid agreement id is required.' }, 400);
     }
 
     const supabaseUrl = getRequiredEnv('SUPABASE_URL');
@@ -318,10 +332,10 @@ Deno.serve(async (request) => {
       anonKey,
     );
     const agreement = agreementRows[0];
-    if (!agreement) return json({ error: 'Agreement not found.' }, 404);
-    if (agreement.lender_id !== authUser.id) return json({ error: 'Only the lender can send this invite.' }, 403);
-    if (agreement.status !== 'pending') return json({ error: 'Only pending agreements can be invited.' }, 400);
-    if (!agreement.borrower_email) return json({ error: 'Agreement does not have a borrower email.' }, 400);
+    if (!agreement) return json(request, { error: 'Agreement not found.' }, 404);
+    if (agreement.lender_id !== authUser.id) return json(request, { error: 'Invite is not available for this agreement.' }, 403);
+    if (agreement.status !== 'pending') return json(request, { error: 'Invite is not available for this agreement.' }, 400);
+    if (!agreement.borrower_email) return json(request, { error: 'Invite is not available for this agreement.' }, 400);
 
     const profileRows = await getJson<ProfileRow[]>(
       `${supabaseUrl}/rest/v1/profiles?select=name,email,currency&id=eq.${encodeURIComponent(authUser.id)}&limit=1`,
@@ -334,9 +348,9 @@ Deno.serve(async (request) => {
     const appNotificationMessage = await notifyBorrowerAccount({ supabaseUrl, serviceRoleKey, agreement, lender });
 
     if (!resendApiKey || !fromEmail) {
-      return json({
+      return json(request, {
         status: 'skipped',
-        message: `${appNotificationMessage} Email skipped: set RESEND_API_KEY and INVITE_FROM_EMAIL in Supabase secrets.`,
+        message: `${appNotificationMessage} Email invite is not configured.`,
       });
     }
 
@@ -358,15 +372,15 @@ Deno.serve(async (request) => {
 
     const emailBody = await emailResponse.json().catch(() => ({}));
     if (!emailResponse.ok) {
-      return json({ error: emailBody.message || 'Email provider rejected the invite.' }, 502);
+      return json(request, { error: 'Email provider rejected the invite.' }, 502);
     }
 
-    return json({
+    return json(request, {
       status: 'sent',
-      message: `Invite email sent to ${agreement.borrower_email}. ${appNotificationMessage}`,
+      message: `Invite email sent. ${appNotificationMessage}`,
       providerMessageId: emailBody.id,
     });
-  } catch (error) {
-    return json({ error: error instanceof Error ? error.message : 'Unexpected invite error.' }, 500);
+  } catch {
+    return json(request, { error: 'Unexpected invite error.' }, 500);
   }
 });

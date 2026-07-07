@@ -11,6 +11,7 @@ import { useTruvoStore } from '@/hooks/useTruvoStore';
 import { authService } from '@/services/authService';
 import { ContactPreference, UserProfileInput, UserRolePreference } from '@/types/models';
 import { getRemainingBalance } from '@/utils/agreementRules';
+import { userSafeMessage } from '@/utils/errors';
 import { formatMoney } from '@/utils/money';
 
 const legal =
@@ -148,8 +149,8 @@ export default function ProfileScreen() {
       clearUserSessionData();
       setConfirmLogoutVisible(false);
       router.replace('/(auth)/welcome');
-    } catch (error) {
-      Alert.alert('Log out failed', error instanceof Error ? error.message : 'Please try again.');
+    } catch {
+      Alert.alert('Log out failed', userSafeMessage('Please try again.'));
     } finally {
       setLoggingOut(false);
     }
@@ -177,8 +178,8 @@ export default function ProfileScreen() {
       setSavingProfile(true);
       await updateCurrentUserProfile(profileForm);
       setEditProfileVisible(false);
-    } catch (error) {
-      Alert.alert('Could not update profile', error instanceof Error ? error.message : 'Please try again.');
+    } catch {
+      Alert.alert('Could not update profile', userSafeMessage('Please try again.'));
     } finally {
       setSavingProfile(false);
     }

@@ -6,6 +6,7 @@ import { PrimaryButton } from '@/components/PrimaryButton';
 import { ScreenContainer } from '@/components/ScreenContainer';
 import { colors, radii, spacing, typography } from '@/constants/theme';
 import { useTruvoStore } from '@/hooks/useTruvoStore';
+import { userSafeMessage } from '@/utils/errors';
 import { isValidEmail, normalizeEmail } from '@/utils/validation';
 
 export default function InviteContactScreen() {
@@ -28,8 +29,8 @@ export default function InviteContactScreen() {
       });
       Alert.alert('Contact saved', 'This contact will appear as a suggestion when you create a new agreement.');
       router.back();
-    } catch (error) {
-      Alert.alert('Could not save contact', error instanceof Error ? error.message : 'Please try again.');
+    } catch {
+      Alert.alert('Could not save contact', userSafeMessage('Please try again.'));
     } finally {
       setLoading(false);
     }

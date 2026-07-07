@@ -239,7 +239,6 @@ const fromContactRow = (row: ContactRow): Contact => ({
 export const agreementService = {
   async createAgreement(agreement: Agreement): Promise<Agreement> {
     if (!supabase) {
-      console.log('Supabase is not configured yet. Agreement kept in local mock state.', agreement.id);
       return agreement;
     }
 
@@ -305,7 +304,6 @@ export const agreementService = {
   },
 
   async registerPayment(input: PaymentInput): Promise<PaymentInput> {
-    console.log('PaymentInput accepted by store; full payment persistence happens after local payment object is created.', input);
     return input;
   },
 
@@ -417,7 +415,6 @@ export const agreementService = {
 
   async syncAgreements(currentUser?: User): Promise<{ agreements: Agreement[]; payments: Payment[]; notifications: Notification[]; contacts: Contact[] }> {
     if (!supabase) {
-      console.log('Supabase is not configured yet. Using seed data.');
       return { agreements: [], payments: [], notifications: [], contacts: [] };
     }
     if (!currentUser) return { agreements: [], payments: [], notifications: [], contacts: [] };

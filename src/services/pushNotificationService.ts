@@ -137,7 +137,7 @@ export const pushNotificationService = {
       'new_agreement_request' | 'agreement_accepted' | 'agreement_rejected' | 'agreement_cancelled' | 'agreement_completed'
     >;
   }): Promise<void> {
-    console.log('Agreement push notifications are sent by the Supabase invite function.', input.type, input.agreement.id, input.recipientUserId);
+    void input;
   },
 
   async sendPaymentNotification(input: {
@@ -145,16 +145,15 @@ export const pushNotificationService = {
     recipientUserId: string;
     type: Extract<NotificationType, 'payment_registered' | 'payment_waiting_confirmation' | 'payment_confirmed' | 'payment_rejected'>;
   }): Promise<void> {
-    console.log('Payment push notifications are not wired to a server dispatcher yet.', input.type, input.payment.id, input.recipientUserId);
+    void input;
   },
 
   async scheduleReminder(input: ReminderInput): Promise<{ reminderId: string }> {
-    console.log('Payment reminder scheduling placeholder', input);
     return { reminderId: `${input.agreementId}-${input.userId}-${input.fireAt}` };
   },
 
   async cancelReminder(reminderId: string): Promise<void> {
-    console.log('Payment reminder cancellation placeholder', reminderId);
+    void reminderId;
   },
 };
 

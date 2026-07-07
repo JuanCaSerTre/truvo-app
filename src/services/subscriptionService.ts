@@ -8,13 +8,12 @@ export type SubscriptionCheckoutResult = {
 
 export const subscriptionService = {
   async startStripeCheckout(plan: 'monthly' | 'yearly'): Promise<SubscriptionCheckoutResult> {
-    console.log('TODO: create Stripe checkout session', plan);
+    void plan;
     return {
       message: 'Stripe checkout is not configured in this build.',
     };
   },
 
   async manageBilling(): Promise<void> {
-    console.log('TODO: open Stripe customer portal');
   },
 };

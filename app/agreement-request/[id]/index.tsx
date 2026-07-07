@@ -7,6 +7,7 @@ import { ScreenContainer } from '@/components/ScreenContainer';
 import { SummaryCard } from '@/components/SummaryCard';
 import { colors, radii, spacing, typography } from '@/constants/theme';
 import { useTruvoStore } from '@/hooks/useTruvoStore';
+import { userSafeMessage } from '@/utils/errors';
 import { formatDate, formatMoney } from '@/utils/money';
 
 export default function AgreementRequestScreen() {
@@ -35,8 +36,8 @@ export default function AgreementRequestScreen() {
       setStatusAction('active');
       await updateAgreementStatus(agreement.id, 'active');
       router.replace(`/agreement/${agreement.id}`);
-    } catch (error) {
-      Alert.alert('Could not accept agreement', error instanceof Error ? error.message : 'Please try again.');
+    } catch {
+      Alert.alert('Could not accept agreement', userSafeMessage('Please try again.'));
     } finally {
       setStatusAction(null);
     }
@@ -47,8 +48,8 @@ export default function AgreementRequestScreen() {
       setStatusAction('rejected');
       await updateAgreementStatus(agreement.id, 'rejected');
       router.replace('/(tabs)/agreements');
-    } catch (error) {
-      Alert.alert('Could not reject agreement', error instanceof Error ? error.message : 'Please try again.');
+    } catch {
+      Alert.alert('Could not reject agreement', userSafeMessage('Please try again.'));
     } finally {
       setStatusAction(null);
     }

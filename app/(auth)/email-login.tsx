@@ -8,6 +8,7 @@ import { authService } from '@/services/authService';
 import { onboardingService } from '@/services/onboardingService';
 import { useTruvoStore } from '@/hooks/useTruvoStore';
 import { colors, radii, spacing, typography } from '@/constants/theme';
+import { userSafeMessage } from '@/utils/errors';
 import { isValidEmail, normalizeEmail } from '@/utils/validation';
 
 type AuthMode = 'sign_in' | 'sign_up';
@@ -46,7 +47,7 @@ export default function EmailLoginScreen() {
       if (mode === 'sign_up') {
         const result = await authService.signUpWithPassword(normalizedEmail, password, name);
         if (result.needsEmailConfirmation) {
-          Alert.alert('Confirmation requested', 'Supabase accepted the signup request. Check your inbox and Auth logs to confirm the email was delivered, then come back and sign in.');
+          Alert.alert('Confirmation requested', 'Check your inbox and spam folder, then come back and sign in.');
           return;
         }
         if (result.user) {
@@ -60,8 +61,8 @@ export default function EmailLoginScreen() {
       setUserFromAuth(user);
       const completedOnboarding = await onboardingService.hasCompleted(user.id);
       router.replace(completedOnboarding ? '/(tabs)' : '/(auth)/onboarding');
-    } catch (error) {
-      Alert.alert(mode === 'sign_up' ? 'Could not create account' : 'Could not sign in', error instanceof Error ? error.message : 'Please try again.');
+    } catch {
+      Alert.alert(mode === 'sign_up' ? 'Could not create account' : 'Could not sign in', userSafeMessage('Check your details and try again.'));
     } finally {
       setLoading(false);
     }
@@ -77,8 +78,8 @@ export default function EmailLoginScreen() {
       setResending(true);
       await authService.resendSignupConfirmation(normalizedEmail);
       Alert.alert('Confirmation email sent', 'Check your inbox and spam folder, then return here to sign in.');
-    } catch (error) {
-      Alert.alert('Could not resend email', error instanceof Error ? error.message : 'Please try again later.');
+    } catch {
+      Alert.alert('Could not resend email', userSafeMessage('Please try again later.'));
     } finally {
       setResending(false);
     }

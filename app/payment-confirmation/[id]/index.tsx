@@ -7,6 +7,7 @@ import { ScreenContainer } from '@/components/ScreenContainer';
 import { StatusBadge } from '@/components/StatusBadge';
 import { colors, radii, spacing, typography } from '@/constants/theme';
 import { useTruvoStore } from '@/hooks/useTruvoStore';
+import { userSafeMessage } from '@/utils/errors';
 import { formatDate, formatMoney } from '@/utils/money';
 
 export default function PaymentConfirmationScreen() {
@@ -32,8 +33,8 @@ export default function PaymentConfirmationScreen() {
       setPaymentAction('confirm');
       await confirmPayment(payment.id);
       router.replace(`/agreement/${agreement.id}`);
-    } catch (error) {
-      Alert.alert('Could not confirm payment', error instanceof Error ? error.message : 'Please try again.');
+    } catch {
+      Alert.alert('Could not confirm payment', userSafeMessage('Please try again.'));
     } finally {
       setPaymentAction(null);
     }
@@ -44,8 +45,8 @@ export default function PaymentConfirmationScreen() {
       setPaymentAction('reject');
       await rejectPayment(payment.id);
       router.replace(`/agreement/${agreement.id}`);
-    } catch (error) {
-      Alert.alert('Could not reject payment', error instanceof Error ? error.message : 'Please try again.');
+    } catch {
+      Alert.alert('Could not reject payment', userSafeMessage('Please try again.'));
     } finally {
       setPaymentAction(null);
     }
