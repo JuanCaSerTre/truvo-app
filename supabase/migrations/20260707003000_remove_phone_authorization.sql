@@ -39,18 +39,23 @@ using (
   )
 );
 
-drop policy if exists "Participants can read timeline" on public.agreement_timeline_events;
-create policy "Participants can read timeline"
-on public.agreement_timeline_events for select
-to authenticated
-using (
-  exists (
-    select 1 from public.agreements a
-    where a.id = agreement_timeline_events.agreement_id
-      and (
-        a.lender_id = auth.uid()
-        or a.borrower_id = auth.uid()
-        or a.borrower_email = (select email from public.profiles where id = auth.uid())
+do $$
+begin
+  if to_regclass('public.agreement_timeline_events') is not null then
+    drop policy if exists "Participants can read timeline" on public.agreement_timeline_events;
+    create policy "Participants can read timeline"
+    on public.agreement_timeline_events for select
+    to authenticated
+    using (
+      exists (
+        select 1 from public.agreements a
+        where a.id = agreement_timeline_events.agreement_id
+          and (
+            a.lender_id = auth.uid()
+            or a.borrower_id = auth.uid()
+            or a.borrower_email = (select email from public.profiles where id = auth.uid())
+          )
       )
-  )
-);
+    );
+  end if;
+end $$;
