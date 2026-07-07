@@ -1,5 +1,6 @@
 import { Agreement, Contact, ContactInput, InviteEmailResult, Notification, NotificationSettings, Payment, PaymentInput, User } from '@/types/models';
 import { supabase } from '@/lib/supabase';
+import { assertApiRecord, assertBooleanField, assertNumberLikeField, assertStringField, throwApiServiceError } from '@/utils/apiErrors';
 
 type AgreementRow = {
   id: string;
@@ -84,6 +85,60 @@ type ContactRow = {
 
 const asNumber = (value: number | string | null | undefined) => Number(value || 0);
 
+const assertAgreementRow = (row: AgreementRow) => {
+  const value = row as unknown;
+  assertApiRecord(value, 'agreement');
+  ['id', 'lender_id', 'payment_frequency', 'start_date', 'due_date', 'status', 'created_at'].forEach((field) =>
+    assertStringField(value, field, 'agreement'),
+  );
+  ['principal_amount', 'interest_amount', 'total_repayment_amount', 'number_of_payments'].forEach((field) =>
+    assertNumberLikeField(value, field, 'agreement'),
+  );
+};
+
+const assertPaymentRow = (row: PaymentRow) => {
+  const value = row as unknown;
+  assertApiRecord(value, 'payment');
+  ['id', 'agreement_id', 'payer_id', 'receiver_id', 'payment_date', 'method', 'status', 'created_at'].forEach((field) =>
+    assertStringField(value, field, 'payment'),
+  );
+  assertNumberLikeField(value, 'amount', 'payment');
+};
+
+const assertNotificationRow = (row: NotificationRow) => {
+  const value = row as unknown;
+  assertApiRecord(value, 'notification');
+  ['id', 'user_id', 'type', 'title', 'body', 'created_at'].forEach((field) => assertStringField(value, field, 'notification'));
+  assertBooleanField(value, 'read', 'notification');
+};
+
+const assertNotificationSettingsRow = (row: NotificationSettingsRow) => {
+  const value = row as unknown;
+  assertApiRecord(value, 'notification settings');
+  [
+    'agreement_requests',
+    'payment_confirmations',
+    'payment_reminders',
+    'overdue_payments',
+    'marketing_messages',
+    'product_updates',
+    'push_notifications',
+    'email_notifications',
+  ].forEach((field) => assertBooleanField(value, field, 'notification settings'));
+};
+
+const assertContactRow = (row: ContactRow) => {
+  const value = row as unknown;
+  assertApiRecord(value, 'contact');
+  ['id', 'owner_id', 'contact_email', 'created_at'].forEach((field) => assertStringField(value, field, 'contact'));
+};
+
+const isInviteEmailResult = (data: unknown): data is InviteEmailResult => {
+  if (!data || typeof data !== 'object') return false;
+  const value = data as Partial<InviteEmailResult>;
+  return (value.status === 'sent' || value.status === 'skipped') && typeof value.message === 'string';
+};
+
 const toAgreementRow = (agreement: Agreement) => ({
   id: agreement.id,
   lender_id: agreement.lenderId,
@@ -157,84 +212,99 @@ const toContactRow = (contact: Contact) => ({
   updated_at: contact.updatedAt,
 });
 
-const fromAgreementRow = (row: AgreementRow): Agreement => ({
-  id: row.id,
-  lenderId: row.lender_id,
-  borrowerId: row.borrower_id || undefined,
-  borrowerPhone: row.borrower_phone || '',
-  borrowerEmail: row.borrower_email || undefined,
-  borrowerName: row.borrower_name || undefined,
-  principalAmount: asNumber(row.principal_amount),
-  interestRate: row.interest_rate === null ? undefined : asNumber(row.interest_rate),
-  interestAmount: asNumber(row.interest_amount),
-  totalRepaymentAmount: asNumber(row.total_repayment_amount),
-  numberOfPayments: row.number_of_payments,
-  paymentFrequency: row.payment_frequency,
-  startDate: row.start_date,
-  dueDate: row.due_date,
-  notes: row.notes || undefined,
-  status: row.status,
-  createdAt: row.created_at,
-  acceptedAt: row.accepted_at || undefined,
-  completedAt: row.completed_at || undefined,
-  nextPaymentDate: row.next_payment_date || undefined,
-  paymentSchedule: row.scheduled_payments
-    ?.sort((a, b) => a.payment_number - b.payment_number)
-    .map((payment) => ({
-      payment_number: payment.payment_number,
-      due_date: payment.due_date,
-      amount: asNumber(payment.amount),
-      status: payment.status,
-    })),
-});
+const fromAgreementRow = (row: AgreementRow): Agreement => {
+  assertAgreementRow(row);
+  return {
+    id: row.id,
+    lenderId: row.lender_id,
+    borrowerId: row.borrower_id || undefined,
+    borrowerPhone: row.borrower_phone || '',
+    borrowerEmail: row.borrower_email || undefined,
+    borrowerName: row.borrower_name || undefined,
+    principalAmount: asNumber(row.principal_amount),
+    interestRate: row.interest_rate === null ? undefined : asNumber(row.interest_rate),
+    interestAmount: asNumber(row.interest_amount),
+    totalRepaymentAmount: asNumber(row.total_repayment_amount),
+    numberOfPayments: row.number_of_payments,
+    paymentFrequency: row.payment_frequency,
+    startDate: row.start_date,
+    dueDate: row.due_date,
+    notes: row.notes || undefined,
+    status: row.status,
+    createdAt: row.created_at,
+    acceptedAt: row.accepted_at || undefined,
+    completedAt: row.completed_at || undefined,
+    nextPaymentDate: row.next_payment_date || undefined,
+    paymentSchedule: row.scheduled_payments
+      ?.sort((a, b) => a.payment_number - b.payment_number)
+      .map((payment) => ({
+        payment_number: payment.payment_number,
+        due_date: payment.due_date,
+        amount: asNumber(payment.amount),
+        status: payment.status,
+      })),
+  };
+};
 
-const fromPaymentRow = (row: PaymentRow): Payment => ({
-  id: row.id,
-  agreementId: row.agreement_id,
-  payerId: row.payer_id,
-  receiverId: row.receiver_id,
-  amount: asNumber(row.amount),
-  paymentDate: row.payment_date,
-  method: row.method,
-  notes: row.notes || undefined,
-  status: row.status,
-  createdAt: row.created_at,
-  confirmedAt: row.confirmed_at || undefined,
-  rejectedAt: row.rejected_at || undefined,
-});
+const fromPaymentRow = (row: PaymentRow): Payment => {
+  assertPaymentRow(row);
+  return {
+    id: row.id,
+    agreementId: row.agreement_id,
+    payerId: row.payer_id,
+    receiverId: row.receiver_id,
+    amount: asNumber(row.amount),
+    paymentDate: row.payment_date,
+    method: row.method,
+    notes: row.notes || undefined,
+    status: row.status,
+    createdAt: row.created_at,
+    confirmedAt: row.confirmed_at || undefined,
+    rejectedAt: row.rejected_at || undefined,
+  };
+};
 
-const fromNotificationRow = (row: NotificationRow): Notification => ({
-  id: row.id,
-  userId: row.user_id,
-  type: row.type === 'payment_reminder' ? 'upcoming_payment_reminder' : row.type,
-  title: row.title,
-  body: row.body,
-  read: row.read,
-  createdAt: row.created_at,
-  archivedAt: row.archived_at || undefined,
-  relatedAgreementId: row.related_agreement_id || undefined,
-  relatedPaymentId: row.related_payment_id || undefined,
-});
+const fromNotificationRow = (row: NotificationRow): Notification => {
+  assertNotificationRow(row);
+  return {
+    id: row.id,
+    userId: row.user_id,
+    type: row.type === 'payment_reminder' ? 'upcoming_payment_reminder' : row.type,
+    title: row.title,
+    body: row.body,
+    read: row.read,
+    createdAt: row.created_at,
+    archivedAt: row.archived_at || undefined,
+    relatedAgreementId: row.related_agreement_id || undefined,
+    relatedPaymentId: row.related_payment_id || undefined,
+  };
+};
 
-const fromNotificationSettingsRow = (row: NotificationSettingsRow): NotificationSettings => ({
-  agreementRequests: row.agreement_requests,
-  paymentConfirmations: row.payment_confirmations,
-  paymentReminders: row.payment_reminders,
-  overduePayments: row.overdue_payments,
-  marketingMessages: row.marketing_messages,
-  productUpdates: row.product_updates,
-  pushNotifications: row.push_notifications,
-  emailNotifications: row.email_notifications,
-});
+const fromNotificationSettingsRow = (row: NotificationSettingsRow): NotificationSettings => {
+  assertNotificationSettingsRow(row);
+  return {
+    agreementRequests: row.agreement_requests,
+    paymentConfirmations: row.payment_confirmations,
+    paymentReminders: row.payment_reminders,
+    overduePayments: row.overdue_payments,
+    marketingMessages: row.marketing_messages,
+    productUpdates: row.product_updates,
+    pushNotifications: row.push_notifications,
+    emailNotifications: row.email_notifications,
+  };
+};
 
-const fromContactRow = (row: ContactRow): Contact => ({
-  id: row.id,
-  ownerId: row.owner_id,
-  contactEmail: row.contact_email,
-  contactName: row.contact_name || undefined,
-  createdAt: row.created_at,
-  updatedAt: row.updated_at || undefined,
-});
+const fromContactRow = (row: ContactRow): Contact => {
+  assertContactRow(row);
+  return {
+    id: row.id,
+    ownerId: row.owner_id,
+    contactEmail: row.contact_email,
+    contactName: row.contact_name || undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at || undefined,
+  };
+};
 
 export const agreementService = {
   async createAgreement(agreement: Agreement): Promise<Agreement> {
@@ -243,7 +313,7 @@ export const agreementService = {
     }
 
     const { error } = await supabase.from('agreements').insert(toAgreementRow(agreement));
-    if (error) throw error;
+    if (error) throwApiServiceError(error, 'Could not create agreement.');
 
     if (agreement.paymentSchedule?.length) {
       const { error: scheduleError } = await supabase.from('scheduled_payments').insert(
@@ -257,7 +327,7 @@ export const agreementService = {
       );
       if (scheduleError) {
         await supabase.from('agreements').delete().eq('id', agreement.id);
-        throw scheduleError;
+        throwApiServiceError(scheduleError, 'Could not create payment schedule.');
       }
     }
 
@@ -267,7 +337,7 @@ export const agreementService = {
   async updateAgreement(agreement: Agreement): Promise<Agreement> {
     if (!supabase) return agreement;
     const { error } = await supabase.from('agreements').update(toAgreementRow(agreement)).eq('id', agreement.id);
-    if (error) throw error;
+    if (error) throwApiServiceError(error, 'Could not update agreement.');
     return agreement;
   },
 
@@ -283,7 +353,7 @@ export const agreementService = {
     );
     const results = await Promise.all(updates);
     const error = results.find((result) => result.error)?.error;
-    if (error) throw error;
+    if (error) throwApiServiceError(error, 'Could not update payment schedule.');
   },
 
   async sendAgreementInvite(agreementId: string): Promise<InviteEmailResult> {
@@ -294,13 +364,13 @@ export const agreementService = {
       };
     }
 
-    const { data, error } = await supabase.functions.invoke<InviteEmailResult>('send-agreement-invite', {
+    const { data, error } = await supabase.functions.invoke<unknown>('send-agreement-invite', {
       body: { agreementId },
     });
 
-    if (error) throw error;
-    if (!data) throw new Error('The invite function did not return a response.');
-    return data;
+    if (error) throwApiServiceError(error, 'Could not send agreement invite.');
+    if (!isInviteEmailResult(data)) throwApiServiceError(undefined, 'Invite service returned an invalid response.');
+    return data as InviteEmailResult;
   },
 
   async registerPayment(input: PaymentInput): Promise<PaymentInput> {
@@ -310,21 +380,21 @@ export const agreementService = {
   async createPayment(payment: Payment): Promise<Payment> {
     if (!supabase) return payment;
     const { error } = await supabase.from('payments').insert(toPaymentRow(payment));
-    if (error) throw error;
+    if (error) throwApiServiceError(error, 'Could not create payment.');
     return payment;
   },
 
   async updatePayment(payment: Payment): Promise<Payment> {
     if (!supabase) return payment;
     const { error } = await supabase.from('payments').update(toPaymentRow(payment)).eq('id', payment.id);
-    if (error) throw error;
+    if (error) throwApiServiceError(error, 'Could not update payment.');
     return payment;
   },
 
   async createNotification(notification: Notification): Promise<Notification> {
     if (!supabase) return notification;
     const { error } = await supabase.from('notifications').insert(toNotificationRow(notification));
-    if (error) throw error;
+    if (error) throwApiServiceError(error, 'Could not create notification.');
     return notification;
   },
 
@@ -348,19 +418,19 @@ export const agreementService = {
   async markNotificationRead(notificationId: string): Promise<void> {
     if (!supabase) return;
     const { error } = await supabase.from('notifications').update({ read: true }).eq('id', notificationId);
-    if (error) throw error;
+    if (error) throwApiServiceError(error, 'Could not mark notification as read.');
   },
 
   async archiveNotification(notificationId: string, archivedAt: string): Promise<void> {
     if (!supabase) return;
     const { error } = await supabase.from('notifications').update({ read: true, archived_at: archivedAt }).eq('id', notificationId);
-    if (error) throw error;
+    if (error) throwApiServiceError(error, 'Could not archive notification.');
   },
 
   async deleteNotification(notificationId: string): Promise<void> {
     if (!supabase) return;
     const { error } = await supabase.from('notifications').delete().eq('id', notificationId);
-    if (error) throw error;
+    if (error) throwApiServiceError(error, 'Could not delete notification.');
   },
 
   async getNotificationSettings(userId: string): Promise<NotificationSettings | undefined> {
@@ -370,7 +440,7 @@ export const agreementService = {
       .select('*')
       .eq('user_id', userId)
       .maybeSingle();
-    if (error && (error as { code?: string }).code !== '42P01') throw error;
+    if (error && (error as { code?: string }).code !== '42P01') throwApiServiceError(error, 'Could not load notification settings.');
     return data ? fromNotificationSettingsRow(data as NotificationSettingsRow) : undefined;
   },
 
@@ -381,7 +451,7 @@ export const agreementService = {
       .upsert(toNotificationSettingsRow(userId, settings), { onConflict: 'user_id' })
       .select('*')
       .single();
-    if (error) throw error;
+    if (error) throwApiServiceError(error, 'Could not update notification settings.');
     return fromNotificationSettingsRow(data as NotificationSettingsRow);
   },
 
@@ -392,7 +462,7 @@ export const agreementService = {
       .upsert(toContactRow(contact), { onConflict: 'owner_id,contact_email' })
       .select('*')
       .single();
-    if (error) throw error;
+    if (error) throwApiServiceError(error, 'Could not save contact.');
     return fromContactRow(data as ContactRow);
   },
 
@@ -442,10 +512,10 @@ export const agreementService = {
       supabase.from('contacts').select('*').eq('owner_id', currentUser.id).order('contact_name', { ascending: true }),
     ]);
 
-    if (agreementError) throw agreementError;
-    if (paymentError) throw paymentError;
-    if (notificationError) throw notificationError;
-    if (contactError && (contactError as { code?: string }).code !== '42P01') throw contactError;
+    if (agreementError) throwApiServiceError(agreementError, 'Could not load agreements.');
+    if (paymentError) throwApiServiceError(paymentError, 'Could not load payments.');
+    if (notificationError) throwApiServiceError(notificationError, 'Could not load notifications.');
+    if (contactError && (contactError as { code?: string }).code !== '42P01') throwApiServiceError(contactError, 'Could not load contacts.');
 
     return {
       agreements: ((agreementRows || []) as AgreementRow[]).map(fromAgreementRow),

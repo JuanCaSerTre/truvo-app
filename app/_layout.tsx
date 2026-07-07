@@ -7,6 +7,7 @@ import { TruvoProvider, useTruvoStore } from '@/hooks/useTruvoStore';
 import { colors } from '@/constants/theme';
 import { authService } from '@/services/authService';
 import { onboardingService } from '@/services/onboardingService';
+import { logApiWarning } from '@/utils/apiErrors';
 
 export default function RootLayout() {
   return (
@@ -51,7 +52,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
         if (!mounted) return;
         setCompletedOnboarding(hasCompletedOnboarding);
       } catch (error) {
-        console.warn('Unable to restore guarded session', error);
+        logApiWarning('Unable to restore guarded session', error);
         if (!mounted) return;
         clearUserSessionData();
         setAuthenticated(false);

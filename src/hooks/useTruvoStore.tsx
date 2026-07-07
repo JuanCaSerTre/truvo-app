@@ -1,14 +1,6 @@
 import React, { createContext, PropsWithChildren, useCallback, useContext, useEffect, useState } from 'react';
 import { Alert } from 'react-native';
 import { router } from 'expo-router';
-import {
-  agreements as seedAgreements,
-  currentUser as seedCurrentUser,
-  notifications as seedNotifications,
-  payments as seedPayments,
-  timelineEvents as seedTimeline,
-  users,
-} from '@/data/mockData';
 import { agreementService } from '@/services/agreementService';
 import { authService } from '@/services/authService';
 import { isSupabaseConfigured } from '@/lib/supabase';
@@ -32,6 +24,7 @@ import {
   UserProfileInput,
 } from '@/types/models';
 import { getConfirmedPayments, getRemainingBalance, shouldCompleteAgreement } from '@/utils/agreementRules';
+import { logApiWarning } from '@/utils/apiErrors';
 import { formatMoney } from '@/utils/money';
 import { isValidEmail } from '@/utils/validation';
 
@@ -83,6 +76,14 @@ const id = () => {
 };
 const now = () => new Date().toISOString();
 const isUuid = (value: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+
+const unauthenticatedUser: User = {
+  id: '',
+  name: '',
+  phone: '',
+  subscription_status: 'free',
+  createdAt: '',
+};
 
 const isPaymentForScheduledPayment = (payment: Payment, scheduledPayment: ScheduledPayment) =>
   Math.abs(payment.amount - scheduledPayment.amount) < 0.01 && payment.paymentDate <= scheduledPayment.due_date;
@@ -151,12 +152,12 @@ type PushNotificationData = {
 };
 
 const allowedNotificationRoute = (data: PushNotificationData) => {
-  if (data.type === 'new_agreement_request' && typeof data.agreementId === 'string') {
+  if (data.type === 'new_agreement_request' && typeof data.agreementId === 'string' && isUuid(data.agreementId)) {
     return `/agreement-request/${encodeURIComponent(data.agreementId)}`;
   }
 
   if (typeof data.route !== 'string') return undefined;
-  if (/^\/(agreement|agreement-request|payment-confirmation|payment-schedule)\/[A-Za-z0-9-]+$/.test(data.route)) {
+  if (/^\/(agreement|agreement-request|payment-confirmation|payment-schedule)\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(data.route)) {
     return data.route;
   }
   return undefined;
@@ -176,18 +177,18 @@ const saveNotificationSettings = (userId: string, settings: NotificationSettings
   try {
     globalThis.localStorage?.setItem(notificationSettingsStorageKey(userId), JSON.stringify(settings));
   } catch (error) {
-    console.warn('Unable to persist notification settings', error);
+    logApiWarning('Unable to persist notification settings', error);
   }
 };
 
 export function TruvoProvider({ children }: PropsWithChildren) {
-  const [currentUser, setCurrentUser] = useState(seedCurrentUser);
-  const [agreementState, setAgreementState] = useState<Agreement[]>(() => (isSupabaseConfigured ? [] : seedAgreements));
-  const [paymentState, setPaymentState] = useState<Payment[]>(() => (isSupabaseConfigured ? [] : seedPayments));
-  const [notificationState, setNotificationState] = useState<Notification[]>(() => (isSupabaseConfigured ? [] : seedNotifications));
-  const [notificationSettings, setNotificationSettings] = useState(() => loadNotificationSettings(seedCurrentUser.id));
+  const [currentUser, setCurrentUser] = useState(unauthenticatedUser);
+  const [agreementState, setAgreementState] = useState<Agreement[]>([]);
+  const [paymentState, setPaymentState] = useState<Payment[]>([]);
+  const [notificationState, setNotificationState] = useState<Notification[]>([]);
+  const [notificationSettings, setNotificationSettings] = useState(() => defaultNotificationSettings);
   const [contactState, setContactState] = useState<Contact[]>([]);
-  const [timelineState, setTimelineState] = useState<AgreementTimelineEvent[]>(() => (isSupabaseConfigured ? [] : seedTimeline));
+  const [timelineState, setTimelineState] = useState<AgreementTimelineEvent[]>([]);
   const [syncing, setSyncing] = useState(false);
 
   const syncData = useCallback(async () => {
@@ -209,7 +210,7 @@ export function TruvoProvider({ children }: PropsWithChildren) {
         setContactState(synced.contacts);
       }
     } catch (error) {
-      console.warn('Unable to sync Supabase data', error);
+      logApiWarning('Unable to sync Supabase data', error);
     } finally {
       setSyncing(false);
     }
@@ -229,7 +230,7 @@ export function TruvoProvider({ children }: PropsWithChildren) {
           saveNotificationSettings(currentUser.id, settings);
           setNotificationSettings(settings);
         })
-        .catch((error) => console.warn('Unable to sync notification settings', error));
+        .catch((error) => logApiWarning('Unable to sync notification settings', error));
     }
   }, [currentUser.id]);
 
@@ -250,7 +251,7 @@ export function TruvoProvider({ children }: PropsWithChildren) {
     if (!isSupabaseConfigured || !isUuid(currentUser.id) || !notificationSettings.pushNotifications) return;
     void pushNotificationService
       .registerDevice({ userId: currentUser.id })
-      .catch((error) => console.warn('Unable to register push token', error));
+      .catch((error) => logApiWarning('Unable to register push token', error));
   }, [currentUser.id, notificationSettings.pushNotifications]);
 
   useEffect(() => {
@@ -277,7 +278,7 @@ export function TruvoProvider({ children }: PropsWithChildren) {
         Alert.alert(nextNotification.title, nextNotification.body);
       }
     }
-    void agreementService.createNotification(nextNotification).catch((error) => console.warn('Unable to persist notification', error));
+    void agreementService.createNotification(nextNotification).catch((error) => logApiWarning('Unable to persist notification', error));
   };
 
   const persistAgreementWithSchedule = async (agreement: Agreement) => {
@@ -347,7 +348,7 @@ export function TruvoProvider({ children }: PropsWithChildren) {
       void createContact({
         contactEmail: input.borrowerEmail,
         contactName: input.borrowerName,
-      }).catch((error) => console.warn('Unable to save borrower contact', error));
+      }).catch((error) => logApiWarning('Unable to save borrower contact', error));
     }
 
     setAgreementState((items) => [agreement, ...items]);
@@ -362,7 +363,7 @@ export function TruvoProvider({ children }: PropsWithChildren) {
       userId: currentUser.id,
       type: 'new_agreement_request',
       title: 'Agreement request created',
-      body: `${input.borrowerName || input.borrowerEmail || 'Borrower'} must accept before this agreement becomes active.`,
+      body: 'The borrower must accept before this agreement becomes active.',
       relatedAgreementId: agreement.id,
     });
     return agreement;
@@ -470,7 +471,7 @@ export function TruvoProvider({ children }: PropsWithChildren) {
       userId: agreement.lenderId,
       type: 'payment_waiting_confirmation',
       title: 'Payment waiting for confirmation',
-      body: `${currentUser.name} registered a ${formatMoney(input.amount, currentUser.currency)} payment for your confirmation.`,
+      body: `${currentUser.name} registered a payment for your confirmation.`,
       relatedAgreementId: input.agreementId,
       relatedPaymentId: payment.id,
     });
@@ -515,7 +516,7 @@ export function TruvoProvider({ children }: PropsWithChildren) {
       userId: payment.payerId,
       type: 'payment_confirmed',
       title: 'Payment confirmed',
-      body: `${currentUser.name} confirmed your ${formatMoney(payment.amount, currentUser.currency)} payment.`,
+      body: `${currentUser.name} confirmed your payment.`,
       relatedAgreementId: payment.agreementId,
       relatedPaymentId: payment.id,
     });
@@ -565,7 +566,7 @@ export function TruvoProvider({ children }: PropsWithChildren) {
       userId: payment.payerId,
       type: 'payment_rejected',
       title: 'Payment rejected',
-      body: `${currentUser.name} rejected your ${formatMoney(payment.amount, currentUser.currency)} payment.`,
+      body: `${currentUser.name} rejected your payment.`,
       relatedAgreementId: payment.agreementId,
       relatedPaymentId: payment.id,
     });
@@ -600,7 +601,7 @@ export function TruvoProvider({ children }: PropsWithChildren) {
       if (isSupabaseConfigured && isUuid(currentUser.id)) {
         void agreementService
           .updateNotificationSettings(currentUser.id, updatedSettings)
-          .catch((error) => console.warn('Unable to persist notification settings', error));
+          .catch((error) => logApiWarning('Unable to persist notification settings', error));
       }
       return updatedSettings;
     });
@@ -631,13 +632,13 @@ export function TruvoProvider({ children }: PropsWithChildren) {
   };
 
   const clearUserSessionData = useCallback(() => {
-    setCurrentUser(seedCurrentUser);
-    setAgreementState(isSupabaseConfigured ? [] : seedAgreements);
-    setPaymentState(isSupabaseConfigured ? [] : seedPayments);
-    setNotificationState(isSupabaseConfigured ? [] : seedNotifications);
-    setNotificationSettings(loadNotificationSettings(seedCurrentUser.id));
+    setCurrentUser(unauthenticatedUser);
+    setAgreementState([]);
+    setPaymentState([]);
+    setNotificationState([]);
+    setNotificationSettings(defaultNotificationSettings);
     setContactState([]);
-    setTimelineState(isSupabaseConfigured ? [] : seedTimeline);
+    setTimelineState([]);
   }, []);
 
   const setUserFromAuth = useCallback((user: User) => {
@@ -651,7 +652,7 @@ export function TruvoProvider({ children }: PropsWithChildren) {
 
   const value = {
     currentUser,
-    users,
+    users: [],
     agreements: agreementState,
     payments: paymentState,
     notifications: notificationState,

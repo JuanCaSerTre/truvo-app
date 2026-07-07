@@ -176,7 +176,6 @@ export type InviteEmailStatus = 'sent' | 'skipped';
 export interface InviteEmailResult {
   status: InviteEmailStatus;
   message: string;
-  providerMessageId?: string;
 }
 
 export interface PaymentInput {

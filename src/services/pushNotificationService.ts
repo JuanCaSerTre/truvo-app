@@ -3,6 +3,7 @@ import * as Device from 'expo-device';
 import { Platform } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import { Agreement, NotificationType, Payment } from '@/types/models';
+import { logApiWarning, throwApiServiceError } from '@/utils/apiErrors';
 
 export type RegisteredDevice = {
   userId: string;
@@ -96,7 +97,7 @@ export const pushNotificationService = {
     if (isMissingDeviceTokenTable(error)) {
       return { registered: false, token, message: 'The device_push_tokens table is missing in Supabase.' };
     }
-    if (error) throw error;
+    if (error) throwApiServiceError(error, 'Could not register push token.');
 
     return { registered: true, token };
   },
@@ -105,7 +106,7 @@ export const pushNotificationService = {
     if (!supabase) return;
     const { error } = await supabase.from('device_push_tokens').delete().eq('user_id', userId);
     if (isMissingDeviceTokenTable(error)) return;
-    if (error) throw error;
+    if (error) throwApiServiceError(error, 'Could not delete push tokens.');
   },
 
   subscribeToNotificationResponses(onResponse: (data: Record<string, unknown>) => void): () => void {
@@ -121,7 +122,7 @@ export const pushNotificationService = {
           onResponse(response.notification.request.content.data as Record<string, unknown>);
         });
       })
-      .catch((error) => console.warn('Unable to subscribe to push notification responses', error));
+      .catch((error) => logApiWarning('Unable to subscribe to push notification responses', error));
 
     return () => {
       active = false;
@@ -149,7 +150,8 @@ export const pushNotificationService = {
   },
 
   async scheduleReminder(input: ReminderInput): Promise<{ reminderId: string }> {
-    return { reminderId: `${input.agreementId}-${input.userId}-${input.fireAt}` };
+    void input;
+    return { reminderId: globalThis.crypto?.randomUUID?.() || `reminder-${Date.now()}` };
   },
 
   async cancelReminder(reminderId: string): Promise<void> {

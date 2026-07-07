@@ -29,11 +29,16 @@ type NotificationSettingsRow = {
   push_notifications: boolean;
 };
 
+const configuredRequestTimeoutMs = Number(Deno.env.get('EXTERNAL_REQUEST_TIMEOUT_MS') || 10000);
+const DEFAULT_REQUEST_TIMEOUT_MS = Number.isFinite(configuredRequestTimeoutMs) && configuredRequestTimeoutMs > 0 ? configuredRequestTimeoutMs : 10000;
+const EXPO_PUSH_URL = Deno.env.get('EXPO_PUSH_URL') || 'https://exp.host/--/api/v2/push/send';
+const RESEND_EMAIL_URL = Deno.env.get('RESEND_EMAIL_URL') || 'https://api.resend.com/emails';
+
 const getAllowedOrigin = (request: Request) => {
   const origin = request.headers.get('Origin');
   const configured = Deno.env.get('INVITE_ALLOWED_ORIGINS');
   if (!origin) return '*';
-  if (!configured) return '*';
+  if (!configured) return '';
 
   const allowedOrigins = configured
     .split(',')
@@ -55,6 +60,24 @@ const json = (request: Request, body: unknown, status = 200) =>
     headers: { ...corsHeaders(request), 'Content-Type': 'application/json' },
   });
 
+const isOriginAllowed = (request: Request) => {
+  const origin = request.headers.get('Origin');
+  return !origin || Boolean(getAllowedOrigin(request));
+};
+
+const fetchWithTimeout = async (url: string, init?: RequestInit, timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS) => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, {
+      ...init,
+      signal: init?.signal || controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+};
+
 const getRequiredEnv = (key: string) => {
   const value = Deno.env.get(key);
   if (!value) throw new Error(`${key} is not configured.`);
@@ -68,7 +91,7 @@ const getJwt = (request: Request) => {
 };
 
 const getJson = async <T>(url: string, jwt: string, anonKey: string): Promise<T> => {
-  const response = await fetch(url, {
+  const response = await fetchWithTimeout(url, {
     headers: {
       apikey: anonKey,
       Authorization: `Bearer ${jwt}`,
@@ -82,7 +105,7 @@ const getJson = async <T>(url: string, jwt: string, anonKey: string): Promise<T>
 };
 
 const serviceRequest = async <T>(url: string, serviceRoleKey: string, init?: RequestInit): Promise<T> => {
-  const response = await fetch(url, {
+  const response = await fetchWithTimeout(url, {
     ...init,
     headers: {
       apikey: serviceRoleKey,
@@ -139,7 +162,7 @@ const sendExpoPush = async (tokens: string[], title: string, body: string, data:
     }));
   if (!messages.length) return;
 
-  const response = await fetch('https://exp.host/--/api/v2/push/send', {
+  const response = await fetchWithTimeout(EXPO_PUSH_URL, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -230,10 +253,8 @@ const notifyBorrowerAccount = async ({
     title,
     body,
     {
-      agreementId: agreement.id,
       type: 'new_agreement_request',
       route: `/agreement-request/${agreement.id}`,
-      url: `truvo://agreement-request/${agreement.id}`,
     },
   );
 
@@ -308,13 +329,17 @@ const renderHtml = (agreement: AgreementRow, lender: ProfileRow, inviteLink: str
 Deno.serve(async (request) => {
   const headers = corsHeaders(request);
   if (request.method === 'OPTIONS') return new Response('ok', { status: headers['Access-Control-Allow-Origin'] ? 200 : 403, headers });
+  if (!isOriginAllowed(request)) return json(request, { error: 'Origin not allowed.' }, 403);
   if (request.method !== 'POST') return json(request, { error: 'Method not allowed.' }, 405);
 
   try {
     const jwt = getJwt(request);
     if (!jwt) return json(request, { error: 'Missing authorization token.' }, 401);
 
-    const { agreementId } = await request.json();
+    const payload = await request.json().catch(() => null);
+    if (!payload || typeof payload !== 'object') return json(request, { error: 'Invalid JSON body.' }, 400);
+
+    const { agreementId } = payload as { agreementId?: unknown };
     if (!agreementId || typeof agreementId !== 'string' || !isUuid(agreementId)) {
       return json(request, { error: 'A valid agreement id is required.' }, 400);
     }
@@ -354,7 +379,7 @@ Deno.serve(async (request) => {
       });
     }
 
-    const emailResponse = await fetch('https://api.resend.com/emails', {
+    const emailResponse = await fetchWithTimeout(RESEND_EMAIL_URL, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${resendApiKey}`,
@@ -370,7 +395,7 @@ Deno.serve(async (request) => {
       }),
     });
 
-    const emailBody = await emailResponse.json().catch(() => ({}));
+    await emailResponse.json().catch(() => ({}));
     if (!emailResponse.ok) {
       return json(request, { error: 'Email provider rejected the invite.' }, 502);
     }
@@ -378,7 +403,6 @@ Deno.serve(async (request) => {
     return json(request, {
       status: 'sent',
       message: `Invite email sent. ${appNotificationMessage}`,
-      providerMessageId: emailBody.id,
     });
   } catch {
     return json(request, { error: 'Unexpected invite error.' }, 500);

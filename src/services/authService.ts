@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { User, UserProfileInput } from '@/types/models';
 import { supabase } from '@/lib/supabase';
 import { SUPABASE_AUTH_STORAGE_KEY, supabaseAuthStorage } from '@/lib/supabaseStorage';
+import { assertApiRecord, assertStringField, logApiWarning, throwApiServiceError } from '@/utils/apiErrors';
 import { pushNotificationService } from './pushNotificationService';
 
 const requireSupabase = () => {
@@ -30,7 +31,7 @@ const clearLocalAuthStorage = async (userId?: string) => {
   }
 };
 
-const mapProfileToUser = (data: {
+type ProfileRow = {
   id: string;
   name: string;
   phone: string | null;
@@ -43,20 +44,31 @@ const mapProfileToUser = (data: {
   avatar_url: string | null;
   subscription_status: User['subscription_status'];
   created_at: string;
-}): User => ({
-  id: data.id,
-  name: data.name,
-  phone: data.phone || '',
-  email: data.email || undefined,
-  country: data.country || undefined,
-  currency: data.currency || undefined,
-  timezone: data.timezone || undefined,
-  contactPreference: data.contact_preference || undefined,
-  userRole: data.user_role || undefined,
-  avatarUrl: data.avatar_url || undefined,
-  subscription_status: data.subscription_status,
-  createdAt: data.created_at,
-});
+};
+
+const assertProfileRow = (data: ProfileRow) => {
+  const value = data as unknown;
+  assertApiRecord(value, 'profile');
+  ['id', 'name', 'subscription_status', 'created_at'].forEach((field) => assertStringField(value, field, 'profile'));
+};
+
+const mapProfileToUser = (data: ProfileRow): User => {
+  assertProfileRow(data);
+  return {
+    id: data.id,
+    name: data.name,
+    phone: data.phone || '',
+    email: data.email || undefined,
+    country: data.country || undefined,
+    currency: data.currency || undefined,
+    timezone: data.timezone || undefined,
+    contactPreference: data.contact_preference || undefined,
+    userRole: data.user_role || undefined,
+    avatarUrl: data.avatar_url || undefined,
+    subscription_status: data.subscription_status,
+    createdAt: data.created_at,
+  };
+};
 
 const profileSelect =
   'id, name, phone, email, country, currency, timezone, contact_preference, user_role, avatar_url, subscription_status, created_at';
@@ -64,7 +76,7 @@ const profileSelect =
 const getOrCreateProfile = async (email: string, name?: string): Promise<User> => {
   const client = requireSupabase();
   const { data: authData, error: userError } = await client.auth.getUser();
-  if (userError) throw userError;
+  if (userError) throwApiServiceError(userError, 'Could not load authenticated user.');
   const authUser = authData.user;
   if (!authUser) throw new Error('No authenticated Supabase user found.');
 
@@ -74,7 +86,7 @@ const getOrCreateProfile = async (email: string, name?: string): Promise<User> =
     .eq('id', authUser.id)
     .maybeSingle();
 
-  if (existingProfileError) throw existingProfileError;
+  if (existingProfileError) throwApiServiceError(existingProfileError, 'Could not load user profile.');
   if (existingProfile) return mapProfileToUser(existingProfile);
 
   const profile = {
@@ -96,9 +108,10 @@ const getOrCreateProfile = async (email: string, name?: string): Promise<User> =
     .select(profileSelect)
     .single();
 
-  if (error) throw error;
+  if (error) throwApiServiceError(error, 'Could not create user profile.');
+  if (!data) throwApiServiceError(undefined, 'Profile service returned an invalid response.');
 
-  return mapProfileToUser(data);
+  return mapProfileToUser(data as ProfileRow);
 };
 
 export const authService = {
@@ -115,7 +128,7 @@ export const authService = {
       },
     });
 
-    if (error) throw error;
+    if (error) throwApiServiceError(error, 'Could not create account.');
     if (!data.session) return { needsEmailConfirmation: true };
 
     return { user: await getOrCreateProfile(email, name), needsEmailConfirmation: false };
@@ -125,7 +138,7 @@ export const authService = {
     const client = requireSupabase();
 
     const { error } = await client.auth.signInWithPassword({ email, password });
-    if (error) throw error;
+    if (error) throwApiServiceError(error, 'Could not sign in.');
     return getOrCreateProfile(email);
   },
 
@@ -135,13 +148,13 @@ export const authService = {
       type: 'signup',
       email,
     });
-    if (error) throw error;
+    if (error) throwApiServiceError(error, 'Could not resend signup confirmation.');
   },
 
   async getCurrentUser(): Promise<User | null> {
     if (!supabase) return null;
     const { data, error } = await supabase.auth.getSession();
-    if (error) throw error;
+    if (error) throwApiServiceError(error, 'Could not restore session.');
     const email = data.session?.user.email;
     if (!email) return null;
     return getOrCreateProfile(email);
@@ -163,7 +176,7 @@ export const authService = {
     const client = requireSupabase();
 
     const { data: authData, error: userError } = await client.auth.getUser();
-    if (userError) throw userError;
+    if (userError) throwApiServiceError(userError, 'Could not load authenticated user.');
     const authUser = authData.user;
     if (!authUser?.email) throw new Error('No authenticated Supabase user found.');
 
@@ -182,8 +195,9 @@ export const authService = {
       .select(profileSelect)
       .single();
 
-    if (error) throw error;
-    return mapProfileToUser(data);
+    if (error) throwApiServiceError(error, 'Could not update profile.');
+    if (!data) throwApiServiceError(undefined, 'Profile service returned an invalid response.');
+    return mapProfileToUser(data as ProfileRow);
   },
 
   async sendOtp(email: string): Promise<{ requestId: string }> {
@@ -194,7 +208,7 @@ export const authService = {
         shouldCreateUser: true,
       },
     });
-    if (error) throw error;
+    if (error) throwApiServiceError(error, 'Could not send email code.');
     return { requestId: `otp-${Date.now()}` };
   },
 
@@ -205,7 +219,7 @@ export const authService = {
       token: code,
       type: 'email',
     });
-    if (error) throw error;
+    if (error) throwApiServiceError(error, 'Could not verify email code.');
     return getOrCreateProfile(email);
   },
 
@@ -217,11 +231,11 @@ export const authService = {
         userId = data.user?.id;
         if (userId) {
           await pushNotificationService.deleteRegisteredDevices(userId).catch((error) => {
-            console.warn('Unable to delete push tokens during logout', error);
+            logApiWarning('Unable to delete push tokens during logout', error);
           });
         }
         const { error } = await supabase.auth.signOut();
-        if (error) throw error;
+        if (error) throwApiServiceError(error, 'Could not sign out.');
       }
     } finally {
       await clearLocalAuthStorage(userId);

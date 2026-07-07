@@ -6,6 +6,7 @@ import { TruvoWordmark } from '@/components/TruvoWordmark';
 import { authService } from '@/services/authService';
 import { onboardingService } from '@/services/onboardingService';
 import { useTruvoStore } from '@/hooks/useTruvoStore';
+import { logApiWarning } from '@/utils/apiErrors';
 
 export default function SplashScreen() {
   const { setUserFromAuth } = useTruvoStore();
@@ -23,7 +24,7 @@ export default function SplashScreen() {
           return;
         }
       } catch (error) {
-        console.warn('Unable to restore session', error);
+        logApiWarning('Unable to restore session', error);
       }
       if (!mounted) return;
       router.replace('/(auth)/welcome');
