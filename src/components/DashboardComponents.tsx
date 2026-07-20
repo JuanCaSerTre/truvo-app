@@ -1,7 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useRef } from 'react';
 import { Animated, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import Reanimated, { FadeInDown, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { colors, radii, spacing, typography } from '@/constants/theme';
+import { CountUpText } from '@/components/CountUpText';
+import { initials } from '@/utils/dashboard';
 
 type Tone = 'success' | 'warning' | 'danger' | 'neutral' | 'info';
 
@@ -21,43 +24,82 @@ const toneTint: Record<Tone, string> = {
   info: '#DBEAFE',
 };
 
+const AnimatedPressable = Reanimated.createAnimatedComponent(Pressable);
 const truvoMark = require('../../assets/icon.png');
 
 export function DashboardHeader({
   name,
+  greeting,
+  insight,
+  insightTone = 'neutral',
   unread,
+  unreadCount,
   onNotifications,
 }: {
   name: string;
+  greeting: string;
+  insight: string;
+  insightTone?: Tone;
   unread: boolean;
+  unreadCount?: number;
   onNotifications: () => void;
 }) {
   return (
     <View style={styles.header}>
-      <Image source={truvoMark} style={styles.headerLogo} resizeMode="contain" />
+      <Image source={truvoMark} style={styles.headerLogo} resizeMode="contain" accessibilityLabel="TRUVO" />
       <View style={styles.headerCopy}>
-        <Text style={styles.greeting}>Good day, {name.split(' ')[0]}</Text>
-        <Text style={styles.headerTitle}>Financial overview</Text>
+        <Text style={styles.greeting} numberOfLines={1}>
+          {greeting}
+        </Text>
+        <View style={styles.insightRow}>
+          <View style={[styles.insightPulse, { backgroundColor: toneColor[insightTone] }]} />
+          <Text style={styles.insightText} numberOfLines={2}>
+            {insight}
+          </Text>
+        </View>
       </View>
-      <Pressable accessibilityRole="button" onPress={onNotifications} style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={unread ? `Notifications, ${unreadCount ?? 'new'} unread` : 'Notifications'}
+        onPress={onNotifications}
+        style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
+      >
         <Ionicons name="notifications-outline" size={24} color={colors.primary} />
-        {unread ? <View style={styles.notificationDot} /> : null}
+        {unread ? (
+          <View style={styles.notificationBadge}>
+            {unreadCount ? <Text style={styles.notificationBadgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text> : null}
+          </View>
+        ) : null}
       </Pressable>
     </View>
   );
 }
 
-export function DashboardSummaryCard({
+export function FinancialOverviewCard({
   toReceive,
   toPay,
   netPosition,
+  receiveCount,
+  payCount,
+  currency,
+  format,
 }: {
-  toReceive: string;
-  toPay: string;
-  netPosition: string;
+  toReceive: number;
+  toPay: number;
+  netPosition: number;
+  receiveCount: number;
+  payCount: number;
+  currency: string;
+  format: (value: number) => string;
 }) {
   const pulse = useRef(new Animated.Value(1)).current;
-  const netTone: Tone = netPosition.startsWith('-') ? 'warning' : netPosition === '$0' ? 'neutral' : 'success';
+  const netTone: Tone = netPosition < 0 ? 'warning' : netPosition === 0 ? 'neutral' : 'success';
+  const story =
+    netPosition > 0
+      ? "You're in a positive position."
+      : netPosition < 0
+        ? "You currently owe more than you're owed."
+        : "You're all squared up.";
 
   useEffect(() => {
     Animated.sequence([
@@ -68,27 +110,76 @@ export function DashboardSummaryCard({
 
   return (
     <Animated.View style={[styles.summaryCard, { transform: [{ scale: pulse }] }]}>
+      {/* subtle gradient accents */}
+      <View style={styles.summaryGlowPrimary} pointerEvents="none" />
+      <View style={styles.summaryGlowSecondary} pointerEvents="none" />
+
       <View style={styles.summaryTop}>
-        <Text style={styles.summaryEyebrow}>Net position</Text>
+        <Text style={styles.summaryEyebrow}>NET POSITION</Text>
         <View style={[styles.summaryBadge, { backgroundColor: toneTint[netTone] }]}>
           <Text style={[styles.summaryBadgeText, { color: toneColor[netTone] }]}>
             {netTone === 'success' ? 'Positive' : netTone === 'warning' ? 'Owing' : 'Balanced'}
           </Text>
         </View>
       </View>
-      <Text style={[styles.netValue, { color: toneColor[netTone] }]}>{netPosition}</Text>
+      <CountUpText value={netPosition} format={format} style={[styles.netValue, { color: netTone === 'warning' ? '#FCA5A5' : '#FFFFFF' }]} />
+      <Text style={styles.summaryStory}>{story}</Text>
+
       <View style={styles.summaryMetrics}>
-        <View style={styles.summaryMetric}>
-          <Text style={styles.metricLabel}>Money To Receive</Text>
-          <Text style={styles.metricValue}>{toReceive}</Text>
-        </View>
+        <MiniSummary
+          label="To Receive"
+          value={toReceive}
+          count={receiveCount}
+          icon="arrow-down"
+          tint="rgba(16, 185, 129, 0.16)"
+          accent={colors.secondary}
+          format={format}
+        />
         <View style={styles.metricDivider} />
-        <View style={styles.summaryMetric}>
-          <Text style={styles.metricLabel}>Money To Pay</Text>
-          <Text style={styles.metricValue}>{toPay}</Text>
-        </View>
+        <MiniSummary
+          label="To Pay"
+          value={toPay}
+          count={payCount}
+          icon="arrow-up"
+          tint="rgba(245, 158, 11, 0.16)"
+          accent={colors.warning}
+          format={format}
+        />
       </View>
     </Animated.View>
+  );
+}
+
+function MiniSummary({
+  label,
+  value,
+  count,
+  icon,
+  tint,
+  accent,
+  format,
+}: {
+  label: string;
+  value: number;
+  count: number;
+  icon: keyof typeof Ionicons.glyphMap;
+  tint: string;
+  accent: string;
+  format: (value: number) => string;
+}) {
+  return (
+    <View style={styles.miniSummary} accessible accessibilityLabel={`${label}: ${format(value)} across ${count} agreements`}>
+      <View style={styles.miniHeaderRow}>
+        <View style={[styles.miniIcon, { backgroundColor: tint }]}>
+          <Ionicons name={icon} size={14} color={accent} />
+        </View>
+        <Text style={styles.miniLabel}>{label}</Text>
+      </View>
+      <CountUpText value={value} format={format} style={styles.miniValue} />
+      <Text style={styles.miniCount}>
+        {count} {count === 1 ? 'agreement' : 'agreements'}
+      </Text>
+    </View>
   );
 }
 
@@ -103,13 +194,27 @@ export function QuickActionCard({
   onPress: () => void;
   tone?: Tone;
 }) {
+  const scale = useSharedValue(1);
+  const animatedStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+
   return (
-    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.quickAction, pressed && styles.pressed]}>
+    <AnimatedPressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onPress={onPress}
+      onPressIn={() => {
+        scale.value = withTiming(0.96, { duration: 90 });
+      }}
+      onPressOut={() => {
+        scale.value = withTiming(1, { duration: 150 });
+      }}
+      style={[styles.quickAction, animatedStyle]}
+    >
       <View style={[styles.quickActionIcon, { backgroundColor: toneTint[tone] }]}>
-        <Ionicons name={icon} size={22} color={toneColor[tone]} />
+        <Ionicons name={icon} size={26} color={toneColor[tone]} />
       </View>
       <Text style={styles.quickActionText}>{label}</Text>
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 
@@ -118,24 +223,59 @@ export function AttentionCard({
   title,
   description,
   tone,
+  agreementName,
+  amount,
+  dueLabel,
+  statusLabel,
   onPress,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   title: string;
   description: string;
   tone: Tone;
+  agreementName?: string;
+  amount?: string;
+  dueLabel?: string;
+  statusLabel?: string;
   onPress?: () => void;
 }) {
+  const hasMeta = agreementName || amount || dueLabel || statusLabel;
   return (
     <Pressable accessibilityRole={onPress ? 'button' : undefined} onPress={onPress} style={({ pressed }) => [styles.attentionCard, pressed && styles.pressed]}>
-      <View style={[styles.smallIcon, { backgroundColor: toneTint[tone] }]}>
-        <Ionicons name={icon} size={19} color={toneColor[tone]} />
+      <View style={[styles.priorityBar, { backgroundColor: toneColor[tone] }]} />
+      <View style={styles.attentionBody}>
+        <View style={styles.attentionHeaderRow}>
+          <View style={[styles.smallIcon, { backgroundColor: toneTint[tone] }]}>
+            <Ionicons name={icon} size={19} color={toneColor[tone]} />
+          </View>
+          <View style={styles.cardCopy}>
+            <Text style={styles.cardTitle}>{title}</Text>
+            <Text style={styles.cardDescription}>{description}</Text>
+          </View>
+          {amount ? <Text style={[styles.attentionAmount, { color: toneColor[tone] }]}>{amount}</Text> : null}
+        </View>
+        {hasMeta ? (
+          <View style={styles.attentionMeta}>
+            {agreementName ? (
+              <View style={styles.metaChip}>
+                <Ionicons name="document-text-outline" size={12} color={colors.textMuted} />
+                <Text style={styles.metaChipText}>{agreementName}</Text>
+              </View>
+            ) : null}
+            {dueLabel ? (
+              <View style={styles.metaChip}>
+                <Ionicons name="time-outline" size={12} color={colors.textMuted} />
+                <Text style={styles.metaChipText}>{dueLabel}</Text>
+              </View>
+            ) : null}
+            {statusLabel ? (
+              <View style={[styles.statusBadge, { backgroundColor: toneTint[tone] }]}>
+                <Text style={[styles.statusBadgeText, { color: toneColor[tone] }]}>{statusLabel}</Text>
+              </View>
+            ) : null}
+          </View>
+        ) : null}
       </View>
-      <View style={styles.cardCopy}>
-        <Text style={styles.cardTitle}>{title}</Text>
-        <Text style={styles.cardDescription}>{description}</Text>
-      </View>
-      {onPress ? <Ionicons name="chevron-forward" size={18} color={colors.textMuted} /> : null}
     </Pressable>
   );
 }
@@ -145,6 +285,7 @@ export function UpcomingPaymentCard({
   amount,
   date,
   direction,
+  frequency,
   status,
   onPress,
 }: {
@@ -152,39 +293,45 @@ export function UpcomingPaymentCard({
   amount: string;
   date: string;
   direction: 'Receive' | 'Pay';
+  frequency: string;
   status: string;
   onPress: () => void;
 }) {
   const tone: Tone = direction === 'Receive' ? 'success' : 'warning';
   return (
-    <View style={styles.paymentCard}>
-      <View style={[styles.paymentAvatar, { backgroundColor: toneTint[tone] }]}>
-        <Ionicons name={direction === 'Receive' ? 'arrow-down-outline' : 'arrow-up-outline'} size={20} color={toneColor[tone]} />
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${direction} ${amount} ${direction === 'Receive' ? 'from' : 'to'} ${person}, due ${date}, ${frequency}`}
+      onPress={onPress}
+      style={({ pressed }) => [styles.paymentCard, pressed && styles.pressed]}
+    >
+      <View style={[styles.avatar, { backgroundColor: toneTint[tone] }]}>
+        <Text style={[styles.avatarText, { color: toneColor[tone] }]}>{initials(person)}</Text>
       </View>
       <View style={styles.cardCopy}>
         <Text style={styles.cardTitle}>{person}</Text>
-        <Text style={styles.cardDescription}>{date}</Text>
+        <View style={styles.paymentSubRow}>
+          <Ionicons name="calendar-outline" size={12} color={colors.textMuted} />
+          <Text style={styles.cardDescription}>{date}</Text>
+          <Text style={styles.dotSeparator}>·</Text>
+          <Text style={styles.cardDescription}>{frequency}</Text>
+        </View>
       </View>
       <View style={styles.paymentRight}>
         <Text style={styles.paymentAmount}>{amount}</Text>
-        <View style={styles.paymentMeta}>
-          <View style={[styles.directionBadge, { backgroundColor: toneTint[tone] }]}>
-            <Text style={[styles.directionText, { color: toneColor[tone] }]}>{direction}</Text>
-          </View>
-          <Text style={styles.statusText}>{status}</Text>
+        <View style={[styles.directionBadge, { backgroundColor: toneTint[tone] }]}>
+          <Ionicons name={direction === 'Receive' ? 'arrow-down' : 'arrow-up'} size={11} color={toneColor[tone]} />
+          <Text style={[styles.directionText, { color: toneColor[tone] }]}>{direction}</Text>
         </View>
-        <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.miniButton, pressed && styles.pressed]}>
-          <Text style={styles.miniButtonText}>View Agreement</Text>
-        </Pressable>
       </View>
-    </View>
+    </Pressable>
   );
 }
 
 export function ActivityTimeline({
   events,
 }: {
-  events: { id: string; title: string; description: string; time: string; tone: Tone; icon: keyof typeof Ionicons.glyphMap }[];
+  events: { id: string; title: string; description: string; time: string; tone: Tone; icon: keyof typeof Ionicons.glyphMap; amount?: string }[];
 }) {
   if (!events.length) {
     return (
@@ -198,7 +345,7 @@ export function ActivityTimeline({
   return (
     <View style={styles.timeline}>
       {events.map((event, index) => (
-        <View key={event.id} style={styles.timelineRow}>
+        <Reanimated.View key={event.id} entering={FadeInDown.delay(index * 70).duration(340)} style={styles.timelineRow}>
           <View style={styles.timelineIconWrap}>
             <View style={[styles.timelineIcon, { backgroundColor: toneTint[event.tone] }]}>
               <Ionicons name={event.icon} size={16} color={toneColor[event.tone]} />
@@ -206,22 +353,48 @@ export function ActivityTimeline({
             {index < events.length - 1 ? <View style={styles.timelineLine} /> : null}
           </View>
           <View style={styles.timelineCopy}>
-            <Text style={styles.cardTitle}>{event.title}</Text>
+            <View style={styles.timelineTitleRow}>
+              <Text style={[styles.cardTitle, styles.flexOne]}>{event.title}</Text>
+              {event.amount ? <Text style={[styles.timelineAmount, { color: toneColor[event.tone] }]}>{event.amount}</Text> : null}
+            </View>
             <Text style={styles.cardDescription}>{event.description}</Text>
             <Text style={styles.timelineTime}>{event.time}</Text>
           </View>
-        </View>
+        </Reanimated.View>
       ))}
     </View>
   );
 }
 
-export function InsightCard({ label, value, tone = 'neutral' }: { label: string; value: string; tone?: Tone }) {
+export function InsightCard({ icon, message, tone = 'info' }: { icon: keyof typeof Ionicons.glyphMap; message: string; tone?: Tone }) {
   return (
-    <View style={styles.insightCard}>
-      <View style={[styles.insightDot, { backgroundColor: toneColor[tone] }]} />
-      <Text style={styles.insightLabel}>{label}</Text>
-      <Text style={styles.insightValue}>{value}</Text>
+    <View style={styles.smartInsightCard}>
+      <View style={[styles.insightIcon, { backgroundColor: toneTint[tone] }]}>
+        <Ionicons name={icon} size={20} color={toneColor[tone]} />
+      </View>
+      <Text style={styles.smartInsightText}>{message}</Text>
+    </View>
+  );
+}
+
+export function EmptyStateCard({
+  icon,
+  title,
+  message,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  title: string;
+  message: string;
+}) {
+  return (
+    <View style={styles.emptyStateCard}>
+      <View style={styles.emptyStateIcon}>
+        <Ionicons name={icon} size={22} color={colors.textMuted} />
+      </View>
+      <View style={styles.flexOne}>
+        <Text style={styles.emptyStateTitle}>{title}</Text>
+        <Text style={styles.emptyCompactText}>{message}</Text>
+      </View>
     </View>
   );
 }
@@ -301,14 +474,27 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
   },
   greeting: {
+    color: colors.text,
+    fontSize: typography.h2,
+    fontWeight: '900',
+    letterSpacing: -0.4,
+  },
+  insightRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  insightPulse: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+  },
+  insightText: {
+    flex: 1,
     color: colors.textMuted,
     fontSize: typography.small,
-    fontWeight: '700',
-  },
-  headerTitle: {
-    color: colors.text,
-    fontSize: typography.h1,
-    fontWeight: '900',
+    fontWeight: '600',
+    lineHeight: 18,
   },
   iconButton: {
     width: 48,
@@ -320,21 +506,50 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
-  notificationDot: {
+  notificationBadge: {
     position: 'absolute',
-    top: 12,
-    right: 12,
-    width: 9,
-    height: 9,
-    borderRadius: 5,
+    top: 9,
+    right: 9,
+    minWidth: 16,
+    height: 16,
+    paddingHorizontal: 3,
+    borderRadius: 8,
     backgroundColor: colors.secondary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: colors.surface,
+  },
+  notificationBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 9,
+    fontWeight: '900',
   },
   summaryCard: {
     padding: spacing.xl,
     borderRadius: 28,
     backgroundColor: colors.primary,
-    gap: spacing.lg,
+    gap: spacing.md,
+    overflow: 'hidden',
     ...cardShadow,
+  },
+  summaryGlowPrimary: {
+    position: 'absolute',
+    top: -60,
+    right: -40,
+    width: 180,
+    height: 180,
+    borderRadius: 90,
+    backgroundColor: 'rgba(16, 185, 129, 0.18)',
+  },
+  summaryGlowSecondary: {
+    position: 'absolute',
+    bottom: -70,
+    left: -50,
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    backgroundColor: 'rgba(37, 99, 235, 0.12)',
   },
   summaryTop: {
     flexDirection: 'row',
@@ -344,8 +559,9 @@ const styles = StyleSheet.create({
   },
   summaryEyebrow: {
     color: '#CBD5E1',
-    fontSize: typography.small,
+    fontSize: typography.caption,
     fontWeight: '900',
+    letterSpacing: 1,
   },
   summaryBadge: {
     minHeight: 28,
@@ -363,36 +579,61 @@ const styles = StyleSheet.create({
     lineHeight: 52,
     fontWeight: '900',
   },
+  summaryStory: {
+    color: '#CBD5E1',
+    fontSize: typography.small,
+    fontWeight: '600',
+    marginTop: -spacing.xs,
+  },
   summaryMetrics: {
     flexDirection: 'row',
     alignItems: 'stretch',
     borderTopWidth: 1,
     borderTopColor: 'rgba(255, 255, 255, 0.12)',
     paddingTop: spacing.lg,
+    marginTop: spacing.xs,
   },
-  summaryMetric: {
+  miniSummary: {
     flex: 1,
     gap: spacing.xs,
+  },
+  miniHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  miniIcon: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  miniLabel: {
+    color: '#94A3B8',
+    fontSize: typography.caption,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  miniValue: {
+    color: '#FFFFFF',
+    fontSize: typography.h2,
+    fontWeight: '900',
+  },
+  miniCount: {
+    color: '#94A3B8',
+    fontSize: typography.caption,
+    fontWeight: '700',
   },
   metricDivider: {
     width: 1,
     marginHorizontal: spacing.lg,
     backgroundColor: 'rgba(255, 255, 255, 0.12)',
   },
-  metricLabel: {
-    color: '#94A3B8',
-    fontSize: typography.caption,
-    fontWeight: '900',
-    textTransform: 'uppercase',
-  },
-  metricValue: {
-    color: '#FFFFFF',
-    fontSize: typography.h2,
-    fontWeight: '900',
-  },
   quickAction: {
     width: '48%',
-    minHeight: 104,
+    minHeight: 112,
     padding: spacing.lg,
     borderRadius: radii.lg,
     backgroundColor: colors.surface,
@@ -403,28 +644,76 @@ const styles = StyleSheet.create({
     ...cardShadow,
   },
   quickActionIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     alignItems: 'center',
     justifyContent: 'center',
   },
   quickActionText: {
     color: colors.text,
-    fontSize: typography.body,
-    fontWeight: '900',
-    lineHeight: 21,
+    fontSize: typography.small,
+    fontWeight: '800',
+    lineHeight: 19,
   },
   attentionCard: {
-    minHeight: 76,
-    padding: spacing.md,
     borderRadius: radii.lg,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
     flexDirection: 'row',
+    overflow: 'hidden',
+    ...cardShadow,
+  },
+  priorityBar: {
+    width: 5,
+  },
+  attentionBody: {
+    flex: 1,
+    padding: spacing.md,
+    gap: spacing.sm,
+  },
+  attentionHeaderRow: {
+    flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
+  },
+  attentionAmount: {
+    fontSize: typography.body,
+    fontWeight: '900',
+  },
+  attentionMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+    paddingLeft: 52,
+  },
+  metaChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 3,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radii.pill,
+    backgroundColor: colors.surfaceMuted,
+  },
+  metaChipText: {
+    color: colors.textMuted,
+    fontSize: typography.caption,
+    fontWeight: '700',
+  },
+  statusBadge: {
+    minHeight: 22,
+    borderRadius: radii.pill,
+    paddingHorizontal: spacing.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  statusBadgeText: {
+    fontSize: typography.caption,
+    fontWeight: '900',
+    textTransform: 'capitalize',
   },
   smallIcon: {
     width: 40,
@@ -449,6 +738,9 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     lineHeight: 18,
   },
+  flexOne: {
+    flex: 1,
+  },
   paymentCard: {
     padding: spacing.md,
     borderRadius: radii.lg,
@@ -458,13 +750,28 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
+    ...cardShadow,
   },
-  paymentAvatar: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+  avatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  avatarText: {
+    fontSize: typography.small,
+    fontWeight: '900',
+  },
+  paymentSubRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  dotSeparator: {
+    color: colors.textMuted,
+    fontSize: typography.caption,
+    fontWeight: '900',
   },
   paymentRight: {
     alignItems: 'flex-end',
@@ -475,38 +782,16 @@ const styles = StyleSheet.create({
     fontSize: typography.body,
     fontWeight: '900',
   },
-  paymentMeta: {
+  directionBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xs,
-  },
-  directionBadge: {
+    gap: 3,
     minHeight: 22,
     borderRadius: radii.pill,
     paddingHorizontal: spacing.sm,
-    alignItems: 'center',
     justifyContent: 'center',
   },
   directionText: {
-    fontSize: typography.caption,
-    fontWeight: '900',
-  },
-  statusText: {
-    color: colors.textMuted,
-    fontSize: typography.caption,
-    fontWeight: '800',
-    textTransform: 'capitalize',
-  },
-  miniButton: {
-    minHeight: 30,
-    borderRadius: radii.pill,
-    paddingHorizontal: spacing.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.primary,
-  },
-  miniButtonText: {
-    color: '#FFFFFF',
     fontSize: typography.caption,
     fontWeight: '900',
   },
@@ -538,11 +823,71 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingBottom: spacing.sm,
   },
+  timelineTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  timelineAmount: {
+    fontSize: typography.small,
+    fontWeight: '900',
+  },
   timelineTime: {
     color: colors.textMuted,
     fontSize: typography.caption,
     fontWeight: '900',
     marginTop: spacing.xs,
+  },
+  smartInsightCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    padding: spacing.lg,
+    borderRadius: radii.lg,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    ...cardShadow,
+  },
+  insightIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  smartInsightText: {
+    flex: 1,
+    color: colors.text,
+    fontSize: typography.small,
+    fontWeight: '700',
+    lineHeight: 20,
+  },
+  emptyStateCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    minHeight: 84,
+    padding: spacing.lg,
+    borderRadius: radii.lg,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderStyle: 'dashed',
+  },
+  emptyStateIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.surfaceMuted,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyStateTitle: {
+    color: colors.text,
+    fontSize: typography.small,
+    fontWeight: '900',
+    marginBottom: 2,
   },
   insightCard: {
     width: '48%',
@@ -553,22 +898,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     gap: spacing.xs,
-  },
-  insightDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  insightLabel: {
-    color: colors.textMuted,
-    fontSize: typography.caption,
-    fontWeight: '900',
-    textTransform: 'uppercase',
-  },
-  insightValue: {
-    color: colors.text,
-    fontSize: typography.h2,
-    fontWeight: '900',
   },
   statCard: {
     width: '48%',
@@ -663,7 +992,6 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: typography.small,
     fontWeight: '700',
-    textAlign: 'center',
     lineHeight: 20,
   },
   pressed: {

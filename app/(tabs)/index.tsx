@@ -7,7 +7,8 @@ import {
   AgreementStatsCard,
   AttentionCard,
   DashboardHeader,
-  DashboardSummaryCard,
+  EmptyStateCard,
+  FinancialOverviewCard,
   InsightCard,
   ProgressWidget,
   QuickActionCard,
@@ -17,17 +18,24 @@ import { PrimaryButton } from '@/components/PrimaryButton';
 import { ScreenContainer } from '@/components/ScreenContainer';
 import { colors, radii, spacing, typography } from '@/constants/theme';
 import { useTruvoStore } from '@/hooks/useTruvoStore';
-import { Agreement, User } from '@/types/models';
+import { Agreement, PaymentFrequency, User } from '@/types/models';
 import { getRemainingBalance, getTotalPaid } from '@/utils/agreementRules';
+import { dueLabel as formatDueLabel, frequencyLabel, greeting as buildGreeting } from '@/utils/dashboard';
 import { formatDate, formatMoney } from '@/utils/money';
 import { getRelativeTime } from '@/utils/notifications';
+
+type Tone = 'success' | 'warning' | 'danger' | 'neutral' | 'info';
 
 type AttentionItem = {
   id: string;
   icon: keyof typeof Ionicons.glyphMap;
   title: string;
   description: string;
-  tone: 'success' | 'warning' | 'danger' | 'neutral' | 'info';
+  tone: Tone;
+  agreementName?: string;
+  amount?: string;
+  dueLabel?: string;
+  statusLabel?: string;
   onPress?: () => void;
 };
 
@@ -38,6 +46,7 @@ type UpcomingPayment = {
   amount: number;
   date: string;
   direction: 'Receive' | 'Pay';
+  frequency: PaymentFrequency;
   status: string;
 };
 
@@ -101,6 +110,8 @@ export default function HomeDashboard() {
       activeAgreements,
       toReceive,
       toPay,
+      receiveCount: lenderActive.length,
+      payCount: borrowerActive.length,
       netPosition: toReceive - toPay,
       confirmedReceived,
       confirmedPaid,
@@ -138,6 +149,7 @@ export default function HomeDashboard() {
             amount: payment.amount,
             date: payment.due_date,
             direction,
+            frequency: agreement.paymentFrequency,
             status: payment.status,
           }));
       })
@@ -153,8 +165,11 @@ export default function HomeDashboard() {
         id: `pending-${pendingAgreement.id}`,
         icon: 'document-text-outline',
         title: 'Agreement waiting acceptance',
-        description: `${getCounterpartyName(pendingAgreement, currentUser, users)} needs your review.`,
+        description: 'Review the terms and accept or decline.',
         tone: 'info',
+        agreementName: getCounterpartyName(pendingAgreement, currentUser, users),
+        amount: formatMoney(pendingAgreement.totalRepaymentAmount, currency),
+        statusLabel: 'Pending',
         onPress: () => router.push(`/agreement/${pendingAgreement.id}`),
       });
     }
@@ -165,8 +180,10 @@ export default function HomeDashboard() {
         id: `payment-${pendingPayment.id}`,
         icon: 'hourglass-outline',
         title: 'Payment waiting confirmation',
-        description: `${formatMoney(pendingPayment.amount, currency)} is waiting for your confirmation.`,
+        description: 'Confirm you received this payment.',
         tone: 'warning',
+        amount: formatMoney(pendingPayment.amount, currency),
+        statusLabel: 'Awaiting you',
         onPress: () => router.push(`/payment-confirmation/${pendingPayment.id}`),
       });
     }
@@ -176,9 +193,13 @@ export default function HomeDashboard() {
       items.push({
         id: `tomorrow-${dueTomorrow.id}`,
         icon: 'calendar-outline',
-        title: 'Payment due tomorrow',
-        description: `${dueTomorrow.direction} ${formatMoney(dueTomorrow.amount, currency)} with ${dueTomorrow.person}.`,
+        title: dueTomorrow.direction === 'Pay' ? 'Payment due tomorrow' : 'Collection due tomorrow',
+        description: `${dueTomorrow.direction === 'Pay' ? 'You owe' : "You'll receive"} this payment.`,
         tone: 'warning',
+        agreementName: dueTomorrow.person,
+        amount: formatMoney(dueTomorrow.amount, currency),
+        dueLabel: 'Tomorrow',
+        statusLabel: frequencyLabel(dueTomorrow.frequency),
         onPress: () => router.push(`/payment-schedule/${dueTomorrow.agreementId}` as never),
       });
     }
@@ -189,8 +210,11 @@ export default function HomeDashboard() {
         id: `overdue-${overdueAgreement.id}`,
         icon: 'alarm-outline',
         title: 'Overdue payment',
-        description: `${getCounterpartyName(overdueAgreement, currentUser, users)} has a missed scheduled payment.`,
+        description: 'A scheduled payment was missed.',
         tone: 'danger',
+        agreementName: getCounterpartyName(overdueAgreement, currentUser, users),
+        dueLabel: overdueAgreement.nextPaymentDate ? formatDueLabel(daysUntil(overdueAgreement.nextPaymentDate)) ?? undefined : undefined,
+        statusLabel: 'Overdue',
         onPress: () => router.push(`/payment-schedule/${overdueAgreement.id}` as never),
       });
     }
@@ -201,8 +225,10 @@ export default function HomeDashboard() {
         id: `rejected-${rejectedPayment.id}`,
         icon: 'alert-circle-outline',
         title: 'Rejected payment',
-        description: `${formatMoney(rejectedPayment.amount, currency)} was rejected and needs follow-up.`,
+        description: 'This payment was rejected and needs follow-up.',
         tone: 'danger',
+        amount: formatMoney(rejectedPayment.amount, currency),
+        statusLabel: 'Rejected',
         onPress: () => router.push(`/payment-confirmation/${rejectedPayment.id}`),
       });
     }
@@ -246,10 +272,71 @@ export default function HomeDashboard() {
     [dashboard.userAgreements, timelineEvents],
   );
 
+  const unreadCount = useMemo(
+    () => notifications.filter((item) => item.userId === currentUser.id && !item.read).length,
+    [currentUser.id, notifications],
+  );
+
+  // Dynamic, prioritized one-line insight under the greeting.
+  const headerInsight = useMemo<{ text: string; tone: Tone }>(() => {
+    const needsAttention = attentionItems.length;
+    if (needsAttention > 0) {
+      return {
+        text: `You have ${needsAttention} ${needsAttention === 1 ? 'item' : 'items'} that need attention.`,
+        tone: attentionItems.some((item) => item.tone === 'danger') ? 'danger' : 'warning',
+      };
+    }
+    const dueThisWeek = upcomingPayments.filter((payment) => {
+      const days = daysUntil(payment.date);
+      return days >= 0 && days <= 7;
+    }).length;
+    if (dueThisWeek > 0) {
+      return { text: `${dueThisWeek} ${dueThisWeek === 1 ? 'payment is' : 'payments are'} due this week.`, tone: 'info' };
+    }
+    return { text: 'Everything is up to date.', tone: 'success' };
+  }, [attentionItems, upcomingPayments]);
+
+  // Lightweight "intelligent" insights.
+  const smartInsights = useMemo(() => {
+    const list: { id: string; icon: keyof typeof Ionicons.glyphMap; message: string; tone: Tone }[] = [];
+    if (dashboard.receiveCount > 0) {
+      list.push({
+        id: 'collection',
+        icon: 'pie-chart-outline',
+        message: `You have collected ${dashboard.collectionRate}% of all active agreements.`,
+        tone: 'info',
+      });
+    }
+    const dueThisWeek = upcomingPayments.filter((payment) => {
+      const days = daysUntil(payment.date);
+      return days >= 0 && days <= 7;
+    }).length;
+    if (dueThisWeek > 0) {
+      list.push({ id: 'due-week', icon: 'calendar-outline', message: `You have ${dueThisWeek} ${dueThisWeek === 1 ? 'payment' : 'payments'} due this week.`, tone: 'warning' });
+    }
+    if (dashboard.toReceive > dashboard.toPay) {
+      list.push({ id: 'position', icon: 'trending-up-outline', message: 'You currently have more money to receive than to pay.', tone: 'success' });
+    } else if (dashboard.toPay > dashboard.toReceive) {
+      list.push({ id: 'position', icon: 'trending-down-outline', message: 'You currently owe more than you are owed.', tone: 'warning' });
+    }
+    return list.slice(0, 3);
+  }, [dashboard.collectionRate, dashboard.receiveCount, dashboard.toPay, dashboard.toReceive, upcomingPayments]);
+
+  const greeting = buildGreeting(currentUser.name);
+  const hasUnread = unreadCount > 0;
+
   if (dashboard.userAgreements.length === 0) {
     return (
       <ScreenContainer refreshing={syncing} onRefresh={syncData}>
-        <DashboardHeader name={currentUser.name} unread={notifications.some((item) => item.userId === currentUser.id && !item.read)} onNotifications={() => router.push('/notifications')} />
+        <DashboardHeader
+          name={currentUser.name}
+          greeting={greeting}
+          insight="Create your first agreement to get started."
+          insightTone="info"
+          unread={hasUnread}
+          unreadCount={unreadCount}
+          onNotifications={() => router.push('/notifications')}
+        />
         <View style={styles.emptyCard}>
           <View style={styles.emptyIllustration}>
             <View style={styles.emptyDocument}>
@@ -271,12 +358,24 @@ export default function HomeDashboard() {
 
   return (
     <ScreenContainer refreshing={syncing} onRefresh={syncData}>
-      <DashboardHeader name={currentUser.name} unread={notifications.some((item) => item.userId === currentUser.id && !item.read)} onNotifications={() => router.push('/notifications')} />
+      <DashboardHeader
+        name={currentUser.name}
+        greeting={greeting}
+        insight={headerInsight.text}
+        insightTone={headerInsight.tone}
+        unread={hasUnread}
+        unreadCount={unreadCount}
+        onNotifications={() => router.push('/notifications')}
+      />
 
-      <DashboardSummaryCard
-        toReceive={formatMoney(dashboard.toReceive, currency)}
-        toPay={formatMoney(dashboard.toPay, currency)}
-        netPosition={formatMoney(dashboard.netPosition, currency)}
+      <FinancialOverviewCard
+        toReceive={dashboard.toReceive}
+        toPay={dashboard.toPay}
+        netPosition={dashboard.netPosition}
+        receiveCount={dashboard.receiveCount}
+        payCount={dashboard.payCount}
+        currency={currency}
+        format={(value) => formatMoney(value, currency)}
       />
 
       <View style={styles.quickActionsGrid}>
@@ -289,7 +388,18 @@ export default function HomeDashboard() {
       <DashboardSection title="Needs Your Attention">
         {attentionItems.length ? (
           attentionItems.map((item) => (
-            <AttentionCard key={item.id} icon={item.icon} title={item.title} description={item.description} tone={item.tone} onPress={item.onPress} />
+            <AttentionCard
+              key={item.id}
+              icon={item.icon}
+              title={item.title}
+              description={item.description}
+              tone={item.tone}
+              agreementName={item.agreementName}
+              amount={item.amount}
+              dueLabel={item.dueLabel}
+              statusLabel={item.statusLabel}
+              onPress={item.onPress}
+            />
           ))
         ) : (
           <View style={styles.allGoodCard}>
@@ -308,16 +418,30 @@ export default function HomeDashboard() {
               amount={formatMoney(payment.amount, currency)}
               date={formatDate(payment.date)}
               direction={payment.direction}
+              frequency={frequencyLabel(payment.frequency)}
               status={statusLabel(payment.status)}
               onPress={() => router.push(`/agreement/${payment.agreementId}`)}
             />
           ))
         ) : (
-          <View style={styles.allGoodCard}>
-            <Ionicons name="calendar-clear-outline" size={22} color={colors.textMuted} />
-            <Text style={styles.allGoodText}>No scheduled payments are coming up.</Text>
-          </View>
+          <EmptyStateCard
+            icon="calendar-clear-outline"
+            title="No payments coming up"
+            message="Scheduled payments will appear here once an agreement is active."
+          />
         )}
+      </DashboardSection>
+
+      {smartInsights.length ? (
+        <DashboardSection title="Insights">
+          {smartInsights.map((insight) => (
+            <InsightCard key={insight.id} icon={insight.icon} message={insight.message} tone={insight.tone} />
+          ))}
+        </DashboardSection>
+      ) : null}
+
+      <DashboardSection title="Recent Activity">
+        <ActivityTimeline events={recentActivity} />
       </DashboardSection>
 
       <DashboardSection title="Agreement Overview">
@@ -333,19 +457,6 @@ export default function HomeDashboard() {
         percent={dashboard.repaymentProgress}
         message={`${Math.round(dashboard.repaymentProgress)}% of active agreements have been repaid.`}
       />
-
-      <DashboardSection title="Financial Insights">
-        <View style={styles.cardGrid}>
-          <InsightCard label="You have received" value={formatMoney(dashboard.confirmedReceived, currency)} tone="success" />
-          <InsightCard label="You have paid" value={formatMoney(dashboard.confirmedPaid, currency)} tone="warning" />
-          <InsightCard label="Collection Rate" value={`${dashboard.collectionRate}%`} tone="info" />
-          <InsightCard label="Average Weekly Payment" value={formatMoney(dashboard.averageWeeklyPayment, currency)} tone="neutral" />
-        </View>
-      </DashboardSection>
-
-      <DashboardSection title="Recent Activity">
-        <ActivityTimeline events={recentActivity} />
-      </DashboardSection>
     </ScreenContainer>
   );
 }
