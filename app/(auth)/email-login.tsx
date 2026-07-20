@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { ScreenContainer } from '@/components/ScreenContainer';
 import { FormInput } from '@/components/FormInput';
 import { PrimaryButton } from '@/components/PrimaryButton';
@@ -14,8 +14,9 @@ import { isValidEmail, normalizeEmail } from '@/utils/validation';
 type AuthMode = 'sign_in' | 'sign_up';
 
 export default function EmailLoginScreen() {
+  const { mode: modeParam } = useLocalSearchParams<{ mode?: string }>();
   const { setUserFromAuth } = useTruvoStore();
-  const [mode, setMode] = useState<AuthMode>('sign_in');
+  const [mode, setMode] = useState<AuthMode>(modeParam === 'sign_up' ? 'sign_up' : 'sign_in');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
