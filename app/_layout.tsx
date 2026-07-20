@@ -1,5 +1,6 @@
 import 'react-native-gesture-handler';
 import React, { useEffect, useState } from 'react';
+import * as Linking from 'expo-linking';
 import { Stack, router, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -29,10 +30,14 @@ export default function RootLayout() {
 
 function AuthGate({ children }: { children: React.ReactNode }) {
   const segments = useSegments();
-  const { clearUserSessionData, setUserFromAuth } = useTruvoStore();
+  const { currentUser, clearUserSessionData, setUserFromAuth } = useTruvoStore();
   const [checkingSession, setCheckingSession] = useState(true);
-  const [authenticated, setAuthenticated] = useState(false);
   const [completedOnboarding, setCompletedOnboarding] = useState(false);
+
+  // Authentication is derived from the store's current user rather than a local flag,
+  // so signing in (setUserFromAuth) and signing out (clearUserSessionData) from anywhere
+  // — the login screens, the deep-link handler, or session restore — keep the gate in sync.
+  const authenticated = Boolean(currentUser.id);
 
   useEffect(() => {
     let mounted = true;
@@ -42,21 +47,13 @@ function AuthGate({ children }: { children: React.ReactNode }) {
         if (!mounted) return;
         if (!user) {
           clearUserSessionData();
-          setAuthenticated(false);
-          setCompletedOnboarding(false);
           return;
         }
         setUserFromAuth(user);
-        setAuthenticated(true);
-        const hasCompletedOnboarding = await onboardingService.hasCompleted(user.id);
-        if (!mounted) return;
-        setCompletedOnboarding(hasCompletedOnboarding);
       } catch (error) {
         logApiWarning('Unable to restore guarded session', error);
         if (!mounted) return;
         clearUserSessionData();
-        setAuthenticated(false);
-        setCompletedOnboarding(false);
       } finally {
         if (mounted) setCheckingSession(false);
       }
@@ -66,6 +63,49 @@ function AuthGate({ children }: { children: React.ReactNode }) {
       mounted = false;
     };
   }, [clearUserSessionData, setUserFromAuth]);
+
+  // Keep the onboarding flag in sync with whoever is currently signed in.
+  useEffect(() => {
+    let active = true;
+    if (!currentUser.id) {
+      setCompletedOnboarding(false);
+      return;
+    }
+    void onboardingService.hasCompleted(currentUser.id).then((done) => {
+      if (active) setCompletedOnboarding(done);
+    });
+    return () => {
+      active = false;
+    };
+  }, [currentUser.id]);
+
+  // Handle the email confirmation deep link. When the user taps the link in the
+  // signup email, the app is opened with the auth tokens in the URL; exchange them
+  // for a session so the user lands authenticated instead of on a dead page.
+  useEffect(() => {
+    let active = true;
+
+    const handleUrl = async (url: string | null) => {
+      if (!url || !url.includes('auth-callback')) return;
+      try {
+        const user = await authService.completeSessionFromUrl(url);
+        if (!active || !user) return;
+        setUserFromAuth(user);
+      } catch (error) {
+        logApiWarning('Unable to complete email confirmation deep link', error);
+      }
+    };
+
+    void Linking.getInitialURL().then(handleUrl);
+    const subscription = Linking.addEventListener('url', ({ url }) => {
+      void handleUrl(url);
+    });
+
+    return () => {
+      active = false;
+      subscription.remove();
+    };
+  }, [setUserFromAuth]);
 
   useEffect(() => {
     if (checkingSession) return;

@@ -24,6 +24,7 @@
     }
   },
   "include": [
+    "expo-env.d.ts",
     "**/*.ts",
     "**/*.tsx",
     "../src/**/*",

@@ -1,4 +1,5 @@
 import 'expo-sqlite/localStorage/install';
+import { Platform } from 'react-native';
 import { createClient } from '@supabase/supabase-js';
 import { SUPABASE_AUTH_STORAGE_KEY, supabaseAuthStorage } from './supabaseStorage';
 
@@ -25,7 +26,10 @@ export const supabase = isSupabaseConfigured
       auth: {
         autoRefreshToken: true,
         persistSession: true,
-        detectSessionInUrl: false,
+        // On web the confirmation link lands back in the browser with tokens in the
+        // URL, so let supabase-js pick them up automatically. On native we handle the
+        // `truvo://auth-callback` deep link ourselves (see authService.completeSessionFromUrl).
+        detectSessionInUrl: Platform.OS === 'web',
         storage: supabaseAuthStorage,
         storageKey: SUPABASE_AUTH_STORAGE_KEY,
       },

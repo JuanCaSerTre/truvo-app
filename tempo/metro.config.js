@@ -102,6 +102,10 @@ const forcedReactSingletons = {
   react: path.join(sidecarNodeModules, "react"),
   "react-dom": path.join(sidecarNodeModules, "react-dom"),
 };
+const tempoSdkRuntimeModules = {
+  "tempo-sdk/canvas": path.join(sidecarNodeModules, "tempo-sdk", "dist", "canvas", "index.js"),
+  "tempo-sdk/assets": path.join(sidecarNodeModules, "tempo-sdk", "dist", "assets", "index.js"),
+};
 
 // Mirror the user app's tsconfig.paths so canvas imports like
 // "@/app/components/X" resolve through Metro the same way TypeScript and
@@ -123,9 +127,11 @@ const tempoWebShims = {};
 // Always install the resolveRequest hook (even with no tsconfig aliases) so
 // the React singleton enforcement runs on every project. Order:
 //   1. React singletons (highest priority — must win over everything).
-//   2. Web shims (web platform only) for native-only modules.
-//   3. User @/ tsconfig aliases (canvas imports of app source).
-//   4. Expo's default resolver (owns the web react-native -> react-native-web
+//   2. Tempo SDK runtime subpaths that package-exports-disabled Metro cannot
+//      resolve through package.json exports.
+//   3. Web shims (web platform only) for native-only modules.
+//   4. User @/ tsconfig aliases (canvas imports of app source).
+//   5. Expo's default resolver (owns the web react-native -> react-native-web
 //      swap).
 const baseResolveRequest = userMetroResolveRequest || config.resolver.resolveRequest;
 config.resolver.resolveRequest = (context, moduleName, platform) => {
@@ -145,6 +151,10 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
         platform,
       );
     }
+  }
+  const tempoSdkRuntimeModule = tempoSdkRuntimeModules[moduleName];
+  if (tempoSdkRuntimeModule) {
+    return context.resolveRequest(context, tempoSdkRuntimeModule, platform);
   }
   if (platform === "web") {
     const shimRel = tempoWebShims[moduleName];
@@ -181,7 +191,7 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
 // module <n>". Bumping the stamp forces a clean rebuild.
 config.cacheVersion = [
   config.cacheVersion,
-  "tempo-metrocfg-v10",
+  "tempo-metrocfg-v11",
   `tempo-${process.env.TEMPO === "true" ? "on" : "off"}`,
 ]
   .filter(Boolean)

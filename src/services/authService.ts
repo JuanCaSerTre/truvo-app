@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Linking from 'expo-linking';
 import { User, UserProfileInput } from '@/types/models';
 import { supabase } from '@/lib/supabase';
 import { SUPABASE_AUTH_STORAGE_KEY, supabaseAuthStorage } from '@/lib/supabaseStorage';
@@ -8,6 +9,38 @@ import { pushNotificationService } from './pushNotificationService';
 const requireSupabase = () => {
   if (!supabase) throw new Error('Authentication is not configured for this build.');
   return supabase;
+};
+
+// Deep link that Supabase redirects to after the user taps the confirmation email.
+// Resolves to `truvo://auth-callback` in a build, or the exp:// dev URL in Expo Go.
+export const authRedirectUrl = Linking.createURL('auth-callback');
+
+// Supabase returns tokens either as query params (PKCE `?code=`) or in the URL
+// fragment (`#access_token=...`). Parse both so we can restore the session.
+const parseAuthParams = (url: string): Record<string, string> => {
+  const params: Record<string, string> = {};
+  const hashIndex = url.indexOf('#');
+  const fragment = hashIndex >= 0 ? url.slice(hashIndex + 1) : '';
+  const beforeHash = hashIndex >= 0 ? url.slice(0, hashIndex) : url;
+  const queryIndex = beforeHash.indexOf('?');
+  const query = queryIndex >= 0 ? beforeHash.slice(queryIndex + 1) : '';
+
+  [query, fragment].forEach((section) => {
+    if (!section) return;
+    section.split('&').forEach((pair) => {
+      if (!pair) return;
+      const eq = pair.indexOf('=');
+      const key = eq >= 0 ? pair.slice(0, eq) : pair;
+      const value = eq >= 0 ? pair.slice(eq + 1) : '';
+      try {
+        params[decodeURIComponent(key)] = decodeURIComponent(value);
+      } catch {
+        params[key] = value;
+      }
+    });
+  });
+
+  return params;
 };
 
 const clearLocalAuthStorage = async (userId?: string) => {
@@ -26,7 +59,8 @@ const clearLocalAuthStorage = async (userId?: string) => {
   await supabaseAuthStorage.removeItem(SUPABASE_AUTH_STORAGE_KEY);
 
   if (userId) {
-    await AsyncStorage.removeItem(`truvo:onboardingComplete:${userId}`);
+    // Keep `truvo:onboardingComplete:${userId}` across sign-outs: the "How TRUVO works"
+    // intro should only show on a user's very first session, not every time they log back in.
     globalThis.localStorage?.removeItem(`truvo:${userId}:notificationSettings`);
   }
 };
@@ -122,6 +156,7 @@ export const authService = {
       email,
       password,
       options: {
+        emailRedirectTo: authRedirectUrl,
         data: {
           name: name.trim() || email.split('@')[0] || 'TRUVO user',
         },
@@ -147,8 +182,43 @@ export const authService = {
     const { error } = await client.auth.resend({
       type: 'signup',
       email,
+      options: {
+        emailRedirectTo: authRedirectUrl,
+      },
     });
     if (error) throwApiServiceError(error, 'Could not resend signup confirmation.');
+  },
+
+  // Called when the app is opened via the email confirmation deep link. Exchanges
+  // the code/tokens in the URL for a session, then returns the confirmed profile.
+  async completeSessionFromUrl(url: string): Promise<User | null> {
+    const client = requireSupabase();
+    const params = parseAuthParams(url);
+
+    if (params.error) {
+      throw new Error(params.error_description || params.error);
+    }
+
+    if (params.code) {
+      const { data, error } = await client.auth.exchangeCodeForSession(params.code);
+      if (error) throwApiServiceError(error, 'Could not confirm email.');
+      const email = data.session?.user.email;
+      if (!email) return null;
+      return getOrCreateProfile(email);
+    }
+
+    if (params.access_token && params.refresh_token) {
+      const { data, error } = await client.auth.setSession({
+        access_token: params.access_token,
+        refresh_token: params.refresh_token,
+      });
+      if (error) throwApiServiceError(error, 'Could not confirm email.');
+      const email = data.session?.user.email;
+      if (!email) return null;
+      return getOrCreateProfile(email);
+    }
+
+    return null;
   },
 
   async getCurrentUser(): Promise<User | null> {
