@@ -1,11 +1,17 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useState } from 'react';
-import { Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { ScreenContainer } from '@/components/ScreenContainer';
 import { FormInput } from '@/components/FormInput';
 import { PrimaryButton } from '@/components/PrimaryButton';
-import { StatusBadge } from '@/components/StatusBadge';
+import { IdentityCard } from '@/components/profile/IdentityCard';
+import { TrustCenterCard } from '@/components/profile/TrustCenterCard';
+import { AccountSummaryCard, SummaryMetric } from '@/components/profile/AccountSummaryCard';
+import { AccountHealthCard, HealthRow } from '@/components/profile/AccountHealthCard';
+import { PremiumCard } from '@/components/profile/PremiumCard';
+import { SettingsSection, SettingsRow } from '@/components/profile/SettingsSection';
+import { DangerZone } from '@/components/profile/DangerZone';
 import { colors, radii, spacing, typography } from '@/constants/theme';
 import { useTruvoStore } from '@/hooks/useTruvoStore';
 import { authService } from '@/services/authService';
@@ -13,21 +19,11 @@ import { ContactPreference, UserProfileInput, UserRolePreference } from '@/types
 import { getRemainingBalance } from '@/utils/agreementRules';
 import { userSafeMessage } from '@/utils/errors';
 import { formatMoney } from '@/utils/money';
+import { profileCompletion, trustIndicators, trustScore } from '@/utils/profileTrust';
 
 const legal =
   'TRUVO does not provide loans or financial services. TRUVO only provides tools to record and track agreements between individuals. Users are responsible for their own agreements.';
-
-type SettingRow = {
-  icon: keyof typeof Ionicons.glyphMap;
-  title: string;
-  description: string;
-  onPress: () => void;
-};
-
-type SettingSection = {
-  title: string;
-  rows: SettingRow[];
-};
+const APP_VERSION = '1.0.0';
 
 export default function ProfileScreen() {
   const { currentUser, agreements, payments, updateCurrentUserProfile, clearUserSessionData } = useTruvoStore();
@@ -45,16 +41,25 @@ export default function ProfileScreen() {
     userRole: currentUser.userRole || 'both',
   });
 
-  const displayContact = currentUser.email || currentUser.phone || 'No email added';
-  const profileDetails = [currentUser.country, currentUser.currency, currentUser.timezone].filter(Boolean).join(' · ');
   const currency = currentUser.currency || 'USD';
   const isPremium = currentUser.subscription_status !== 'free';
   const subscriptionLabel =
     currentUser.subscription_status === 'premium_yearly'
-      ? 'Premium yearly'
+      ? 'Premium Yearly'
       : currentUser.subscription_status === 'premium_monthly'
-        ? 'Premium monthly'
-        : 'Free plan';
+        ? 'Premium Monthly'
+        : 'Free Plan';
+
+  const memberSince = useMemo(() => {
+    const d = currentUser.createdAt ? new Date(currentUser.createdAt) : null;
+    return d && !Number.isNaN(d.getTime()) ? d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : '—';
+  }, [currentUser.createdAt]);
+
+  const completion = profileCompletion(currentUser);
+  const indicators = trustIndicators(currentUser);
+  const score = trustScore(currentUser);
+  const hasPhone = Boolean(currentUser.phone && currentUser.phone.trim());
+
   const activeAgreements = agreements.filter((agreement) => agreement.status === 'active');
   const currentUserAgreements = activeAgreements.filter(
     (agreement) =>
@@ -78,66 +83,66 @@ export default function ProfileScreen() {
     return payment.payerId === currentUser.id || payment.receiverId === currentUser.id || agreement?.lenderId === currentUser.id;
   }).length;
 
-  const settingSections: SettingSection[] = [
+  const summaryMetrics: SummaryMetric[] = [
+    { key: 'active', label: 'Active Agreements', value: currentUserAgreements.length, format: String, insight: currentUserAgreements.length ? 'In progress' : 'None yet' },
+    { key: 'receive', label: 'Money to Receive', value: moneyToReceive, format: (v) => formatMoney(v, currency), highlight: true },
+    { key: 'pay', label: 'Money to Pay', value: moneyToPay, format: (v) => formatMoney(v, currency) },
+    { key: 'pending', label: 'Pending Confirmations', value: pendingConfirmations, format: String, insight: pendingConfirmations ? 'Needs attention' : 'All up to date' },
+  ];
+
+  const healthRows: HealthRow[] = [
+    { key: 'profile', icon: 'person-circle-outline', label: 'Profile completion', status: `${completion}%`, percent: completion },
+    { key: 'security', icon: 'lock-closed-outline', label: 'Security status', status: 'Secure', percent: 100 },
+    { key: 'notifications', icon: 'notifications-outline', label: 'Notification settings', status: 'Enabled', percent: 100 },
+    { key: 'backup', icon: 'save-outline', label: 'Backup status', status: hasPhone ? 'Ready' : 'Partial', percent: hasPhone ? 100 : 60 },
+    { key: 'sync', icon: 'cloud-outline', label: 'Cloud sync', status: 'Coming soon', percent: 0, future: true },
+  ];
+
+  const openEdit = () => {
+    setProfileForm({
+      name: currentUser.name,
+      phone: currentUser.phone,
+      country: currentUser.country || '',
+      currency: currentUser.currency || 'USD',
+      timezone: currentUser.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
+      contactPreference: currentUser.contactPreference || 'email',
+      userRole: currentUser.userRole || 'both',
+    });
+    setEditProfileVisible(true);
+  };
+
+  const settingSections: { title: string; rows: SettingsRow[] }[] = [
     {
       title: 'Account',
       rows: [
-        {
-          icon: 'person-circle-outline',
-          title: 'Personal details',
-          description: 'Name, email, optional phone, and profile preferences',
-          onPress: () => {
-            setProfileForm({
-              name: currentUser.name,
-              phone: currentUser.phone,
-              country: currentUser.country || '',
-              currency: currentUser.currency || 'USD',
-              timezone: currentUser.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
-              contactPreference: currentUser.contactPreference || 'email',
-              userRole: currentUser.userRole || 'both',
-            });
-            setEditProfileVisible(true);
-          },
-        },
-        {
-          icon: 'notifications-outline',
-          title: 'Notifications',
-          description: 'Push alerts, reminders, and activity preferences',
-          onPress: () => router.push('/notification-settings' as never),
-        },
+        { icon: 'person-circle-outline', title: 'Personal details', description: 'Name, phone, country, and preferences', onPress: openEdit },
+        { icon: 'globe-outline', title: 'Language & region', description: 'Currency, timezone, and language', onPress: openEdit },
       ],
     },
     {
-      title: 'Subscription',
+      title: 'Security',
       rows: [
-        {
-          icon: 'diamond-outline',
-          title: 'Premium plan',
-          description: isPremium ? 'Manage your active TRUVO Premium benefits' : 'Upgrade for higher limits and premium tools',
-          onPress: () => router.push('/premium'),
-        },
+        { icon: 'lock-closed-outline', title: 'Password & security', description: 'Manage how you sign in', onPress: () => Alert.alert('Security', 'Security settings will be added in a future step.') },
+        { icon: 'phone-portrait-outline', title: 'Connected devices', description: 'Coming soon', trailing: 'Soon', onPress: () => Alert.alert('Connected devices', 'This feature is coming soon.') },
       ],
     },
     {
-      title: 'Legal',
+      title: 'Notifications',
+      rows: [{ icon: 'notifications-outline', title: 'Notifications', description: 'Push alerts, reminders, and activity', onPress: () => router.push('/notification-settings' as never) }],
+    },
+    {
+      title: 'Privacy & Data',
       rows: [
-        {
-          icon: 'document-text-outline',
-          title: 'Legal disclaimer',
-          description: 'Review how TRUVO supports personal agreements',
-          onPress: () => Alert.alert('Legal disclaimer', legal),
-        },
+        { icon: 'shield-outline', title: 'Privacy', description: 'How your data is used', onPress: () => Alert.alert('Privacy', legal) },
+        { icon: 'download-outline', title: 'Export data', description: 'Download your agreements and activity', onPress: () => Alert.alert('Export data', 'Data export will be added in a future step.') },
       ],
     },
     {
-      title: 'Support',
+      title: 'Support & Legal',
       rows: [
-        {
-          icon: 'help-circle-outline',
-          title: 'Help and support',
-          description: 'Get help with agreements, payments, and your account',
-          onPress: () => Alert.alert('Support', 'Support options will be added in a future step.'),
-        },
+        { icon: 'help-circle-outline', title: 'Help & support', description: 'Get help with your account', onPress: () => Alert.alert('Support', 'Support options will be added in a future step.') },
+        { icon: 'document-text-outline', title: 'Legal disclaimer', description: 'How TRUVO supports personal agreements', onPress: () => Alert.alert('Legal disclaimer', legal) },
+        { icon: 'information-circle-outline', title: 'About TRUVO', description: `Version ${APP_VERSION}`, onPress: () => Alert.alert('About TRUVO', `TRUVO v${APP_VERSION}`) },
       ],
     },
   ];
@@ -154,6 +159,17 @@ export default function ProfileScreen() {
     } finally {
       setLoggingOut(false);
     }
+  };
+
+  const handleDeleteAccount = () => {
+    Alert.alert(
+      'Delete account',
+      'This permanently deletes your TRUVO account and cannot be undone. Are you sure?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete account', style: 'destructive', onPress: () => Alert.alert('Account deletion', 'Account deletion will be handled by support for now. Please contact us to proceed.') },
+      ],
+    );
   };
 
   const updateProfileField = <Key extends keyof UserProfileInput>(key: Key, value: UserProfileInput[Key]) => {
@@ -173,7 +189,6 @@ export default function ProfileScreen() {
       Alert.alert('Check currency', 'Use a 3-letter code like USD, COP, or AUD.');
       return;
     }
-
     try {
       setSavingProfile(true);
       await updateCurrentUserProfile(profileForm);
@@ -187,95 +202,55 @@ export default function ProfileScreen() {
 
   return (
     <ScreenContainer>
-      <View style={styles.headerCard}>
-        <View style={styles.headerTop}>
-          {currentUser.avatarUrl ? (
-            <Image source={{ uri: currentUser.avatarUrl }} style={styles.avatar} />
-          ) : (
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>{currentUser.name.slice(0, 1).toUpperCase()}</Text>
-            </View>
-          )}
-          <View style={styles.headerCopy}>
-            <Text style={styles.title}>{currentUser.name}</Text>
-            <View style={styles.contactRow}>
-              <Ionicons name="mail-outline" size={15} color={colors.textMuted} />
-              <Text style={styles.contactText}>{displayContact}</Text>
-            </View>
-            {profileDetails ? <Text style={styles.profileDetails}>{profileDetails}</Text> : null}
-          </View>
-        </View>
-        <View style={styles.headerMeta}>
-          <View style={styles.premiumBadge}>
-            <Ionicons name={isPremium ? 'sparkles' : 'shield-checkmark-outline'} size={14} color={isPremium ? colors.secondary : colors.textMuted} />
-            <Text style={[styles.premiumBadgeText, isPremium && styles.premiumBadgeTextActive]}>
-              {isPremium ? 'Premium' : 'Protected'}
-            </Text>
-          </View>
-          <StatusBadge status={currentUser.subscription_status} />
-        </View>
-        <Text style={styles.subscriptionText}>{subscriptionLabel}</Text>
-      </View>
+      <IdentityCard
+        name={currentUser.name}
+        email={currentUser.email}
+        avatarUrl={currentUser.avatarUrl}
+        country={currentUser.country}
+        memberSince={memberSince}
+        subscriptionLabel={subscriptionLabel}
+        completion={completion}
+        emailVerified={Boolean(currentUser.email)}
+        phonePending={!hasPhone}
+        onEdit={openEdit}
+      />
 
-      <View style={styles.summaryCard}>
-        <View style={styles.summaryHeader}>
-          <View>
-            <Text style={styles.sectionEyebrow}>Account summary</Text>
-            <Text style={styles.summaryTitle}>Your TRUVO activity</Text>
-          </View>
-          <View style={styles.summaryIcon}>
-            <Ionicons name="stats-chart-outline" size={20} color={colors.secondary} />
-          </View>
-        </View>
-        <View style={styles.metricGrid}>
-          <MetricTile label="Active agreements" value={String(currentUserAgreements.length)} />
-          <MetricTile label="To receive" value={formatMoney(moneyToReceive, currency)} highlight />
-          <MetricTile label="To pay" value={formatMoney(moneyToPay, currency)} />
-          <MetricTile label="Pending confirmations" value={String(pendingConfirmations)} />
-        </View>
-      </View>
+      <Section title="Trust Center">
+        <TrustCenterCard score={score} indicators={indicators} />
+      </Section>
+
+      <Section title="Account Summary">
+        <AccountSummaryCard metrics={summaryMetrics} />
+      </Section>
+
+      <Section title="Account Health">
+        <AccountHealthCard rows={healthRows} />
+      </Section>
+
+      <PremiumCard isPremium={isPremium} onUpgrade={() => router.push('/premium')} />
 
       {settingSections.map((section) => (
-        <SettingsSection key={section.title} section={section} />
+        <SettingsSection key={section.title} title={section.title} rows={section.rows} />
       ))}
 
-      <View style={styles.footer}>
-        <Pressable
-          accessibilityRole="button"
-          disabled={loggingOut}
-          onPress={() => setConfirmLogoutVisible(true)}
-          style={({ pressed }) => [styles.logoutButton, pressed && styles.pressed]}
-        >
-          <Ionicons name="log-out-outline" size={20} color={colors.danger} />
-          <Text style={styles.logoutText}>Log Out</Text>
-        </Pressable>
-      </View>
+      <DangerZone
+        appVersion={APP_VERSION}
+        environment={__DEV__ ? 'Development' : undefined}
+        loggingOut={loggingOut}
+        onLogout={() => setConfirmLogoutVisible(true)}
+        onDeleteAccount={handleDeleteAccount}
+      />
 
-      <Modal
-        animationType="fade"
-        transparent
-        visible={confirmLogoutVisible}
-        onRequestClose={() => setConfirmLogoutVisible(false)}
-      >
+      <Modal animationType="fade" transparent visible={confirmLogoutVisible} onRequestClose={() => setConfirmLogoutVisible(false)}>
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Log Out</Text>
             <Text style={styles.modalMessage}>Are you sure you want to log out?</Text>
             <View style={styles.modalActions}>
-              <Pressable
-                accessibilityRole="button"
-                disabled={loggingOut}
-                onPress={() => setConfirmLogoutVisible(false)}
-                style={({ pressed }) => [styles.cancelButton, pressed && styles.pressed]}
-              >
+              <Pressable accessibilityRole="button" disabled={loggingOut} onPress={() => setConfirmLogoutVisible(false)} style={({ pressed }) => [styles.cancelButton, pressed && styles.pressed]}>
                 <Text style={styles.cancelText}>Cancel</Text>
               </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                disabled={loggingOut}
-                onPress={handleConfirmLogout}
-                style={({ pressed }) => [styles.confirmButton, pressed && styles.pressed]}
-              >
+              <Pressable accessibilityRole="button" disabled={loggingOut} onPress={handleConfirmLogout} style={({ pressed }) => [styles.confirmButton, pressed && styles.pressed]}>
                 <Text style={styles.confirmText}>{loggingOut ? 'Logging out...' : 'Log Out'}</Text>
               </Pressable>
             </View>
@@ -283,12 +258,7 @@ export default function ProfileScreen() {
         </View>
       </Modal>
 
-      <Modal
-        animationType="slide"
-        transparent
-        visible={editProfileVisible}
-        onRequestClose={() => setEditProfileVisible(false)}
-      >
+      <Modal animationType="slide" transparent visible={editProfileVisible} onRequestClose={() => setEditProfileVisible(false)}>
         <View style={styles.modalBackdrop}>
           <View style={styles.profileModalCard}>
             <View style={styles.profileModalHeader}>
@@ -307,7 +277,6 @@ export default function ProfileScreen() {
               <FormInput label="Country" value={profileForm.country || ''} onChangeText={(value) => updateProfileField('country', value)} placeholder="United States" />
               <FormInput label="Currency" value={profileForm.currency || ''} onChangeText={(value) => updateProfileField('currency', value.toUpperCase())} placeholder="USD" autoCapitalize="characters" maxLength={3} />
               <FormInput label="Timezone" value={profileForm.timezone || ''} onChangeText={(value) => updateProfileField('timezone', value)} placeholder="America/New_York" autoCapitalize="none" />
-
               <OptionGroup title="Preferred contact" options={contactOptions} value={profileForm.contactPreference || 'email'} onChange={(value) => updateProfileField('contactPreference', value)} />
               <OptionGroup title="TRUVO usage" options={roleOptions} value={profileForm.userRole || 'both'} onChange={(value) => updateProfileField('userRole', value)} />
             </ScrollView>
@@ -334,42 +303,11 @@ const roleOptions: { value: UserRolePreference; label: string }[] = [
   { value: 'borrower', label: 'Borrower' },
 ];
 
-function MetricTile({ label, value, highlight = false }: { label: string; value: string; highlight?: boolean }) {
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <View style={[styles.metricTile, highlight && styles.metricTileHighlight]}>
-      <Text style={[styles.metricValue, highlight && styles.metricValueHighlight]}>{value}</Text>
-      <Text style={styles.metricLabel}>{label}</Text>
-    </View>
-  );
-}
-
-function SettingsSection({ section }: { section: SettingSection }) {
-  return (
-    <View style={styles.settingsSection}>
-      <Text style={styles.sectionTitle}>{section.title}</Text>
-      <View style={styles.settingsCard}>
-        {section.rows.map((row, index) => (
-          <Pressable
-            key={row.title}
-            accessibilityRole="button"
-            onPress={row.onPress}
-            style={({ pressed }) => [
-              styles.settingRow,
-              index < section.rows.length - 1 && styles.settingRowBorder,
-              pressed && styles.pressed,
-            ]}
-          >
-            <View style={styles.settingIcon}>
-              <Ionicons name={row.icon} size={21} color={colors.primary} />
-            </View>
-            <View style={styles.settingCopy}>
-              <Text style={styles.settingTitle}>{row.title}</Text>
-              <Text style={styles.settingDescription}>{row.description}</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
-          </Pressable>
-        ))}
-      </View>
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle}>{title}</Text>
+      {children}
     </View>
   );
 }
@@ -406,221 +344,13 @@ function OptionGroup<Value extends string>({
 }
 
 const styles = StyleSheet.create({
-  headerCard: {
-    padding: spacing.lg,
-    borderRadius: radii.lg,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
+  section: {
     gap: spacing.md,
-  },
-  headerTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-  },
-  avatar: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.primary,
-  },
-  avatarText: {
-    color: '#FFFFFF',
-    fontSize: 30,
-    fontWeight: '900',
-  },
-  headerCopy: {
-    flex: 1,
-    gap: spacing.xs,
-  },
-  title: {
-    color: colors.text,
-    fontSize: typography.h2,
-    fontWeight: '900',
-  },
-  contactRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-  },
-  contactText: {
-    color: colors.textMuted,
-    fontSize: typography.small,
-    fontWeight: '600',
-  },
-  profileDetails: {
-    color: colors.textMuted,
-    fontSize: typography.caption,
-    fontWeight: '700',
-  },
-  headerMeta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-  },
-  premiumBadge: {
-    minHeight: 30,
-    borderRadius: radii.pill,
-    paddingHorizontal: spacing.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    backgroundColor: '#F1F5F9',
-  },
-  premiumBadgeText: {
-    color: colors.textMuted,
-    fontSize: typography.caption,
-    fontWeight: '900',
-    textTransform: 'uppercase',
-  },
-  premiumBadgeTextActive: {
-    color: colors.secondary,
-  },
-  subscriptionText: {
-    color: colors.textMuted,
-    fontSize: typography.small,
-    fontWeight: '700',
-  },
-  summaryCard: {
-    padding: spacing.lg,
-    borderRadius: radii.lg,
-    backgroundColor: colors.primary,
-    gap: spacing.lg,
-  },
-  summaryHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing.md,
-  },
-  sectionEyebrow: {
-    color: '#A7F3D0',
-    fontSize: typography.caption,
-    fontWeight: '900',
-    textTransform: 'uppercase',
-  },
-  summaryTitle: {
-    color: '#FFFFFF',
-    fontSize: typography.h3,
-    fontWeight: '900',
-    marginTop: spacing.xs,
-  },
-  summaryIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(16, 185, 129, 0.14)',
-  },
-  metricGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-  },
-  metricTile: {
-    width: '48%',
-    minHeight: 82,
-    borderRadius: radii.md,
-    padding: spacing.md,
-    justifyContent: 'space-between',
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.10)',
-  },
-  metricTileHighlight: {
-    backgroundColor: 'rgba(16, 185, 129, 0.18)',
-    borderColor: 'rgba(16, 185, 129, 0.34)',
-  },
-  metricValue: {
-    color: '#FFFFFF',
-    fontSize: typography.h3,
-    fontWeight: '900',
-  },
-  metricValueHighlight: {
-    color: '#A7F3D0',
-  },
-  metricLabel: {
-    color: '#CBD5E1',
-    fontSize: typography.caption,
-    lineHeight: 16,
-    fontWeight: '700',
-  },
-  settingsSection: {
-    gap: spacing.sm,
   },
   sectionTitle: {
     color: colors.text,
-    fontSize: typography.small,
+    fontSize: typography.h2,
     fontWeight: '900',
-    textTransform: 'uppercase',
-    paddingHorizontal: spacing.xs,
-  },
-  settingsCard: {
-    overflow: 'hidden',
-    borderRadius: radii.lg,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  settingRow: {
-    minHeight: 76,
-    padding: spacing.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-  },
-  settingRowBorder: {
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  settingIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.surfaceMuted,
-  },
-  settingCopy: {
-    flex: 1,
-    gap: spacing.xs,
-  },
-  settingTitle: {
-    color: colors.text,
-    fontSize: typography.body,
-    fontWeight: '800',
-  },
-  settingDescription: {
-    color: colors.textMuted,
-    fontSize: typography.small,
-    lineHeight: 20,
-    fontWeight: '600',
-  },
-  footer: {
-    flex: 1,
-    justifyContent: 'flex-end',
-    paddingTop: spacing.xl,
-  },
-  logoutButton: {
-    minHeight: 52,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: '#FECACA',
-    backgroundColor: '#FEF2F2',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'row',
-    gap: spacing.sm,
-  },
-  logoutText: {
-    color: colors.danger,
-    fontSize: typography.body,
-    fontWeight: '800',
   },
   pressed: {
     opacity: 0.72,
