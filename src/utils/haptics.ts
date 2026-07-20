@@ -1,16 +1,12 @@
-import { Platform } from 'react-native';
-import * as Haptics from 'expo-haptics';
+import { HapticService } from '@/services/feedback/HapticService';
 
-/** Thin haptics wrapper — no-ops on web and swallows errors so callers stay clean. */
-const safe = (fn: () => Promise<void>) => {
-  if (Platform.OS === 'web') return;
-  fn().catch(() => {
-    // haptics are best-effort; ignore unsupported-device errors
-  });
-};
-
+/**
+ * Back-compat shim. New code should import HapticService or EmotionFeedbackService
+ * directly; this keeps existing call-sites (navigation, action hub) centralized.
+ */
 export const haptics = {
-  light: () => safe(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)),
-  medium: () => safe(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)),
-  success: () => safe(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)),
+  selection: HapticService.selection,
+  light: HapticService.light,
+  medium: HapticService.medium,
+  success: HapticService.success,
 };

@@ -7,6 +7,7 @@ import { PrimaryButton } from '@/components/PrimaryButton';
 import { ScreenContainer } from '@/components/ScreenContainer';
 import { colors, radii, spacing, typography } from '@/constants/theme';
 import { useTruvoStore } from '@/hooks/useTruvoStore';
+import { EmotionFeedbackService } from '@/services/feedback/EmotionFeedbackService';
 import { PaymentMethod } from '@/types/models';
 import { getRemainingBalance } from '@/utils/agreementRules';
 import { userSafeMessage } from '@/utils/errors';
@@ -65,10 +66,10 @@ export default function RegisterPaymentScreen() {
         method,
         notes: notes || undefined,
       });
-      Alert.alert('Payment submitted', 'The lender can now confirm this payment.');
+      EmotionFeedbackService.success('Payment registered', 'The lender can now confirm this payment.');
       router.replace(`/agreement/${agreement.id}`);
     } catch {
-      Alert.alert('Could not register payment', userSafeMessage('Please try again.'));
+      EmotionFeedbackService.error('Could not register payment', userSafeMessage('Please try again.'));
     } finally {
       setLoading(false);
     }

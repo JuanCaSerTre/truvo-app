@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Alert, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { EmptyState } from '@/components/EmptyState';
 import { PrimaryButton } from '@/components/PrimaryButton';
@@ -7,6 +7,7 @@ import { ScreenContainer } from '@/components/ScreenContainer';
 import { StatusBadge } from '@/components/StatusBadge';
 import { colors, radii, spacing, typography } from '@/constants/theme';
 import { useTruvoStore } from '@/hooks/useTruvoStore';
+import { EmotionFeedbackService } from '@/services/feedback/EmotionFeedbackService';
 import { userSafeMessage } from '@/utils/errors';
 import { formatDate, formatMoney } from '@/utils/money';
 
@@ -32,9 +33,10 @@ export default function PaymentConfirmationScreen() {
     try {
       setPaymentAction('confirm');
       await confirmPayment(payment.id);
+      EmotionFeedbackService.success('Payment confirmed', 'The balance and progress have been updated.');
       router.replace(`/agreement/${agreement.id}`);
     } catch {
-      Alert.alert('Could not confirm payment', userSafeMessage('Please try again.'));
+      EmotionFeedbackService.error('Could not confirm payment', userSafeMessage('Please try again.'));
     } finally {
       setPaymentAction(null);
     }
@@ -44,9 +46,10 @@ export default function PaymentConfirmationScreen() {
     try {
       setPaymentAction('reject');
       await rejectPayment(payment.id);
+      EmotionFeedbackService.warning('Payment rejected', 'The payer has been notified.');
       router.replace(`/agreement/${agreement.id}`);
     } catch {
-      Alert.alert('Could not reject payment', userSafeMessage('Please try again.'));
+      EmotionFeedbackService.error('Could not reject payment', userSafeMessage('Please try again.'));
     } finally {
       setPaymentAction(null);
     }

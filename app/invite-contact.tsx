@@ -13,6 +13,7 @@ import { useTruvoStore } from '@/hooks/useTruvoStore';
 import { userSafeMessage } from '@/utils/errors';
 import { isValidEmail, normalizeEmail } from '@/utils/validation';
 import { buildRelationships, Relationship } from '@/utils/trustNetwork';
+import { EmotionFeedbackService } from '@/services/feedback/EmotionFeedbackService';
 
 export default function TrustNetworkScreen() {
   const { createContact, contacts, agreements, payments, currentUser } = useTruvoStore();
@@ -52,9 +53,9 @@ export default function TrustNetworkScreen() {
     try {
       setLoading(true);
       await createContact({ contactEmail: normalizedEmail, contactName: name.trim() || undefined });
-      Alert.alert('Invitation ready', 'They\'ve been added to your Trust Network and will be suggested when you create agreements.');
+      EmotionFeedbackService.success('Invitation sent', 'They\'ve joined your Trust Network and will be suggested when you create agreements.');
     } catch {
-      Alert.alert('Could not send invitation', userSafeMessage('Please try again.'));
+      EmotionFeedbackService.error('Could not send invitation', userSafeMessage('Please try again.'));
     } finally {
       setLoading(false);
     }

@@ -20,6 +20,8 @@ import { getRemainingBalance } from '@/utils/agreementRules';
 import { userSafeMessage } from '@/utils/errors';
 import { formatMoney } from '@/utils/money';
 import { profileCompletion, trustIndicators, trustScore } from '@/utils/profileTrust';
+import { EmotionFeedbackService } from '@/services/feedback/EmotionFeedbackService';
+import { HapticService } from '@/services/feedback/HapticService';
 
 const legal =
   'TRUVO does not provide loans or financial services. TRUVO only provides tools to record and track agreements between individuals. Users are responsible for their own agreements.';
@@ -162,6 +164,7 @@ export default function ProfileScreen() {
   };
 
   const handleDeleteAccount = () => {
+    HapticService.heavy();
     Alert.alert(
       'Delete account',
       'This permanently deletes your TRUVO account and cannot be undone. Are you sure?',
@@ -193,8 +196,9 @@ export default function ProfileScreen() {
       setSavingProfile(true);
       await updateCurrentUserProfile(profileForm);
       setEditProfileVisible(false);
+      EmotionFeedbackService.success('Profile updated', 'Your details were saved.');
     } catch {
-      Alert.alert('Could not update profile', userSafeMessage('Please try again.'));
+      EmotionFeedbackService.error('Could not update profile', userSafeMessage('Please try again.'));
     } finally {
       setSavingProfile(false);
     }
@@ -227,7 +231,7 @@ export default function ProfileScreen() {
         <AccountHealthCard rows={healthRows} />
       </Section>
 
-      <PremiumCard isPremium={isPremium} onUpgrade={() => router.push('/premium')} />
+      <PremiumCard isPremium={isPremium} onUpgrade={() => { HapticService.medium(); router.push('/premium'); }} />
 
       {settingSections.map((section) => (
         <SettingsSection key={section.title} title={section.title} rows={section.rows} />

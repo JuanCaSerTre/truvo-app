@@ -33,7 +33,7 @@ export function BottomNavigation({ state, navigation, onCreatePress, createActiv
   const navigateTo = (name: string) => {
     const route = routeByName[name];
     if (!route) return;
-    haptics.light();
+    haptics.selection();
     const event = navigation.emit({ type: 'tabPress', target: route.key, canPreventDefault: true });
     if (activeName !== name && !event.defaultPrevented) {
       navigation.navigate(route.name);

@@ -10,6 +10,7 @@ import { StatusBadge } from '@/components/StatusBadge';
 import { SummaryCard } from '@/components/SummaryCard';
 import { colors, radii, spacing, typography } from '@/constants/theme';
 import { useTruvoStore } from '@/hooks/useTruvoStore';
+import { EmotionFeedbackService } from '@/services/feedback/EmotionFeedbackService';
 import { canEditAgreement, getRemainingBalance, getTotalPaid } from '@/utils/agreementRules';
 import { userSafeMessage } from '@/utils/errors';
 import { formatDate, formatMoney } from '@/utils/money';
@@ -71,9 +72,16 @@ export default function AgreementDetailsScreen() {
     try {
       setStatusAction(status);
       await updateAgreementStatus(agreement.id, status);
-      if (status === 'rejected') router.replace('/(tabs)/agreements');
+      if (status === 'active') {
+        EmotionFeedbackService.success('Agreement accepted', 'You can now track payments together.');
+      } else if (status === 'rejected') {
+        EmotionFeedbackService.warning('Agreement rejected', 'The other person has been notified.');
+        router.replace('/(tabs)/agreements');
+      } else {
+        EmotionFeedbackService.warning('Agreement cancelled', 'This agreement is no longer active.');
+      }
     } catch {
-      Alert.alert('Could not update agreement', userSafeMessage('Please try again.'));
+      EmotionFeedbackService.error('Could not update agreement', userSafeMessage('Please try again.'));
     } finally {
       setStatusAction(null);
     }

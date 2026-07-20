@@ -15,6 +15,7 @@ import { colors, radii, spacing, typography } from '@/constants/theme';
 import { useTruvoStore } from '@/hooks/useTruvoStore';
 import { PaymentFrequency, ScheduledPayment } from '@/types/models';
 import { calculateAgreement, InterestType } from '@/utils/agreementCalculator';
+import { EmotionFeedbackService } from '@/services/feedback/EmotionFeedbackService';
 import { frequencyLabel } from '@/utils/dashboard';
 import { userSafeMessage } from '@/utils/errors';
 import { formatDate, formatMoneyPrecise, toNumber } from '@/utils/money';
@@ -160,13 +161,18 @@ export default function CreateAgreementScreen() {
 
   const goNext = () => {
     setAttemptedStep(true);
-    if (!canContinue) return;
+    if (!canContinue) {
+      EmotionFeedbackService.warning('Almost there', 'Complete this step to continue.');
+      return;
+    }
     setAttemptedStep(false);
+    EmotionFeedbackService.selection();
     setStepIndex((value) => Math.min(value + 1, steps.length - 1));
   };
 
   const goBack = () => {
     setAttemptedStep(false);
+    EmotionFeedbackService.selection();
     setStepIndex((value) => Math.max(value - 1, 0));
   };
 
@@ -225,17 +231,16 @@ export default function CreateAgreementScreen() {
       });
       try {
         const invite = await sendAgreementInvite(agreement.id);
-        if (invite.status === 'skipped') {
-          Alert.alert('Agreement created', invite.message);
-        } else {
-          Alert.alert('Agreement sent', invite.message || 'The borrower invitation email was sent.');
-        }
+        EmotionFeedbackService.success(
+          invite.status === 'skipped' ? 'Agreement created' : 'Agreement sent',
+          invite.message || 'The borrower invitation email was sent.',
+        );
       } catch {
-        Alert.alert('Agreement created, email not sent', userSafeMessage('Open the agreement details to resend the invite.'));
+        EmotionFeedbackService.success('Agreement created', 'Open the agreement to resend the invite email.');
       }
       router.push(`/agreement/${agreement.id}`);
     } catch {
-      Alert.alert('Could not create agreement', userSafeMessage('Please check the details and try again.'));
+      EmotionFeedbackService.error('Could not create agreement', userSafeMessage('Please check the details and try again.'));
     } finally {
       setLoading(false);
     }

@@ -5,6 +5,7 @@ import { Stack, router, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { TruvoProvider, useTruvoStore } from '@/hooks/useTruvoStore';
+import { FeedbackProvider } from '@/components/feedback/FeedbackProvider';
 import { colors } from '@/constants/theme';
 import { authService } from '@/services/authService';
 import { onboardingService } from '@/services/onboardingService';
@@ -14,15 +15,17 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <TruvoProvider>
-        <StatusBar style="dark" />
-        <AuthGate>
-          <Stack
-            screenOptions={{
-              headerShown: false,
-              contentStyle: { backgroundColor: colors.background },
-            }}
-          />
-        </AuthGate>
+        <FeedbackProvider>
+          <StatusBar style="dark" />
+          <AuthGate>
+            <Stack
+              screenOptions={{
+                headerShown: false,
+                contentStyle: { backgroundColor: colors.background },
+              }}
+            />
+          </AuthGate>
+        </FeedbackProvider>
       </TruvoProvider>
     </GestureHandlerRootView>
   );
