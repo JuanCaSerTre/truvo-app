@@ -39,6 +39,8 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     padding: spacing.lg,
+    // Clear the floating bottom navigation which is absolutely positioned over content.
+    paddingBottom: 120,
     gap: spacing.lg,
   },
 });
