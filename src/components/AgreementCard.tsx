@@ -1,89 +1,59 @@
 import React, { useEffect, useRef } from 'react';
-import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Animated, Pressable, StyleSheet, View } from 'react-native';
+import { router } from 'expo-router';
 import { Agreement, Payment, User } from '@/types/models';
-import { colors, radii, spacing, typography } from '@/constants/theme';
-import { formatDate, formatMoney } from '@/utils/money';
-import { getConfirmedPayments, getProgress, getRemainingBalance } from '@/utils/agreementRules';
+import { colors, radii, spacing } from '@/constants/theme';
+import { formatDate, formatMoneyPrecise } from '@/utils/money';
+import { frequencyLabel } from '@/utils/dashboard';
+import { getAgreementHealth } from '@/utils/agreementHealth';
+import { getConfirmedPayments, getPendingPayments, getProgress, getRemainingBalance } from '@/utils/agreementRules';
+import { AgreementHeader } from '@/components/agreements/AgreementHeader';
+import { AgreementHealthBadge } from '@/components/agreements/AgreementHealthBadge';
+import { AgreementStatusBadge } from '@/components/agreements/AgreementStatusBadge';
+import { AgreementSummary } from '@/components/agreements/AgreementSummary';
+import { AgreementProgress } from '@/components/agreements/AgreementProgress';
+import { AgreementActions, AgreementAction } from '@/components/agreements/AgreementActions';
 
 interface Props {
   agreement: Agreement;
   currentUser: User;
   payments: Payment[];
   currency?: string;
+  index?: number;
   onPress: () => void;
 }
 
-const receiveTheme = {
-  label: 'You Receive',
-  background: '#ECFDF5',
-  accent: colors.secondary,
-  amount: colors.secondary,
-  icon: 'arrow-down-circle-outline' as const,
-};
+const receiveTheme = { accent: colors.secondary, amount: colors.secondary, tint: '#ECFDF5', background: '#F6FEFB' };
+const payTheme = { accent: '#F59E0B', amount: '#D97706', tint: '#FFFBEB', background: '#FFFDF6' };
 
-const payTheme = {
-  label: 'You Pay',
-  background: '#FFFBEB',
-  accent: '#F59E0B',
-  amount: '#D97706',
-  icon: 'arrow-up-circle-outline' as const,
-};
-
-const statusTheme = (status: Agreement['status']) => {
-  if (status === 'active') return { background: '#DBEAFE', text: colors.info };
-  if (status === 'completed') return { background: '#D1FAE5', text: '#059669' };
-  if (status === 'rejected') return { background: '#FEE2E2', text: colors.danger };
-  if (status === 'cancelled') return { background: '#F1F5F9', text: colors.textMuted };
-  return { background: '#F1F5F9', text: colors.textMuted };
-};
-
-const readableStatus = (status: string) => status.replace(/_/g, ' ');
-
-export function AgreementCard({ agreement, currentUser, payments, currency = currentUser.currency || 'USD', onPress }: Props) {
+export function AgreementCard({ agreement, currentUser, payments, currency = currentUser.currency || 'USD', index = 0, onPress }: Props) {
   const isLender = agreement.lenderId === currentUser.id;
   const isBorrower = agreement.borrowerId === currentUser.id || agreement.borrowerEmail?.toLowerCase() === currentUser.email?.toLowerCase();
   const theme = isLender ? receiveTheme : payTheme;
-  const person = isLender ? agreement.borrowerName || agreement.borrowerEmail || agreement.borrowerPhone : 'Lender';
+  const person = isLender ? agreement.borrowerName || agreement.borrowerEmail || agreement.borrowerPhone || 'Borrower' : 'Lender';
+
   const remaining = getRemainingBalance(agreement, payments);
   const progress = getProgress(agreement, payments);
   const confirmedCount = getConfirmedPayments(agreement.id, payments).length;
+  const health = getAgreementHealth(agreement, payments);
   const progressColor = agreement.status === 'completed' ? '#059669' : theme.accent;
-  const status = statusTheme(agreement.status);
-  const progressAnim = useRef(new Animated.Value(progress)).current;
-  const statusPulse = useRef(new Animated.Value(1)).current;
+  const money = (value: number) => formatMoneyPrecise(value, currency);
+
+  // Contextual actions: only what's relevant to the current state.
+  const actions: AgreementAction[] = [];
+  const pendingForMe = getPendingPayments(agreement.id, payments).some((p) => p.receiverId === currentUser.id);
+  if (pendingForMe) {
+    actions.push({ key: 'confirm', label: 'Confirm Payment', icon: 'checkmark-circle-outline', primary: true, onPress: () => router.push(`/(tabs)/payments`) });
+  }
+  if (agreement.status === 'active' && isBorrower && !pendingForMe) {
+    actions.push({ key: 'register', label: 'Register Payment', icon: 'cash-outline', primary: true, onPress: () => router.push(`/register-payment/${agreement.id}`) });
+  }
+  actions.push({ key: 'view', label: 'View Details', icon: 'arrow-forward-outline', primary: actions.length === 0, onPress });
+
   const entrance = useRef(new Animated.Value(0)).current;
-
   useEffect(() => {
-    Animated.timing(entrance, {
-      toValue: 1,
-      duration: 220,
-      useNativeDriver: true,
-    }).start();
-  }, [entrance]);
-
-  useEffect(() => {
-    Animated.timing(progressAnim, {
-      toValue: progress,
-      duration: 360,
-      useNativeDriver: false,
-    }).start();
-  }, [progress, progressAnim]);
-
-  useEffect(() => {
-    statusPulse.setValue(0.96);
-    Animated.spring(statusPulse, {
-      toValue: 1,
-      friction: 7,
-      tension: 90,
-      useNativeDriver: true,
-    }).start();
-  }, [agreement.status, statusPulse]);
-
-  const width = progressAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['0%', '100%'],
-  });
+    Animated.timing(entrance, { toValue: 1, duration: 260, delay: Math.min(index, 6) * 60, useNativeDriver: true }).start();
+  }, [entrance, index]);
 
   return (
     <Animated.View
@@ -91,59 +61,34 @@ export function AgreementCard({ agreement, currentUser, payments, currency = cur
         styles.animatedWrap,
         {
           opacity: entrance,
-          transform: [
-            {
-              translateY: entrance.interpolate({
-                inputRange: [0, 1],
-                outputRange: [10, 0],
-              }),
-            },
-          ],
+          transform: [{ translateY: entrance.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }) }],
         },
       ]}
     >
       <Pressable
         onPress={onPress}
         accessibilityRole="button"
-        accessibilityLabel={`${isBorrower ? 'You Pay' : theme.label}. ${person}. ${formatMoney(agreement.totalRepaymentAmount, currency)} total. ${readableStatus(agreement.status)}.`}
-        style={({ pressed }) => [
-          styles.card,
-          { backgroundColor: theme.background, borderLeftColor: theme.accent },
-          pressed && styles.pressed,
-        ]}
+        accessibilityLabel={`${isLender ? 'You receive from' : 'You pay'} ${person}, ${money(agreement.totalRepaymentAmount)} total, ${health.label}, status ${agreement.status}`}
+        style={({ pressed }) => [styles.card, { backgroundColor: theme.background, borderLeftColor: theme.accent }, pressed && styles.pressed]}
       >
         <View style={styles.topRow}>
-          <View style={[styles.directionBadge, { backgroundColor: '#FFFFFF', borderColor: theme.accent }]}>
-            <Ionicons name={theme.icon} size={17} color={theme.accent} />
-            <Text style={[styles.directionText, { color: theme.accent }]}>{theme.label}</Text>
-          </View>
-          <Animated.View style={[styles.statusBadge, { backgroundColor: status.background, transform: [{ scale: statusPulse }] }]}>
-            <Text style={[styles.statusText, { color: status.text }]}>{readableStatus(agreement.status)}</Text>
-          </Animated.View>
+          <AgreementHealthBadge health={health} />
+          <AgreementStatusBadge status={agreement.status} />
         </View>
 
-        <View style={styles.middle}>
-          <View style={styles.personRow}>
-            <View style={[styles.iconBubble, { backgroundColor: '#FFFFFF' }]}>
-              <Ionicons name={isLender ? 'wallet-outline' : 'card-outline'} size={20} color={theme.accent} />
-            </View>
-            <Text style={styles.person} numberOfLines={1}>{person}</Text>
-          </View>
-          <Text style={[styles.amount, { color: theme.amount }]}>{formatMoney(agreement.totalRepaymentAmount, currency)}</Text>
-          <Text style={styles.remaining}>{formatMoney(remaining, currency)} remaining</Text>
-        </View>
+        <AgreementHeader person={person} direction={isLender ? 'Receive' : 'Pay'} accent={theme.accent} tint={theme.tint} />
 
-        <View style={styles.progressTrack}>
-          <Animated.View style={[styles.progressFill, { width, backgroundColor: progressColor }]} />
-        </View>
+        <AgreementSummary
+          amount={money(agreement.totalRepaymentAmount)}
+          remaining={money(remaining)}
+          nextPaymentDate={agreement.nextPaymentDate ? formatDate(agreement.nextPaymentDate) : 'Not scheduled'}
+          frequency={frequencyLabel(agreement.paymentFrequency)}
+          amountColor={theme.amount}
+        />
 
-        <View style={styles.bottomRow}>
-          <View style={styles.nextRow}>
-            <Ionicons name="calendar-outline" size={15} color={colors.textMuted} />
-            <Text style={styles.next}>{agreement.nextPaymentDate ? formatDate(agreement.nextPaymentDate) : 'Not scheduled'}</Text>
-          </View>
-          <Text style={styles.counter}>{confirmedCount} / {agreement.numberOfPayments} payments</Text>
-        </View>
+        <AgreementProgress progress={progress} confirmedCount={confirmedCount} totalPayments={agreement.numberOfPayments} color={progressColor} />
+
+        <AgreementActions actions={actions} />
       </Pressable>
     </Animated.View>
   );
@@ -166,101 +111,12 @@ const styles = StyleSheet.create({
     gap: spacing.lg,
   },
   pressed: {
-    opacity: 0.78,
+    opacity: 0.82,
   },
   topRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: spacing.md,
-  },
-  directionBadge: {
-    minHeight: 34,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 7,
-  },
-  directionText: {
-    fontSize: typography.caption,
-    fontWeight: '900',
-    textTransform: 'uppercase',
-  },
-  statusBadge: {
-    alignSelf: 'flex-start',
-    borderRadius: radii.pill,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 8,
-  },
-  statusText: {
-    fontSize: typography.caption,
-    fontWeight: '900',
-    textTransform: 'capitalize',
-  },
-  middle: {
-    gap: spacing.xs,
-  },
-  personRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
     gap: spacing.sm,
-  },
-  iconBubble: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  person: {
-    color: colors.text,
-    fontSize: typography.h3,
-    fontWeight: '900',
-    flex: 1,
-  },
-  amount: {
-    fontSize: 32,
-    fontWeight: '900',
-    marginTop: spacing.sm,
-  },
-  remaining: {
-    color: colors.textMuted,
-    fontSize: typography.small,
-    fontWeight: '800',
-  },
-  progressTrack: {
-    height: 9,
-    backgroundColor: 'rgba(15, 23, 42, 0.09)',
-    borderRadius: radii.pill,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    borderRadius: radii.pill,
-  },
-  bottomRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing.md,
-  },
-  nextRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    flex: 1,
-  },
-  next: {
-    color: colors.textMuted,
-    fontSize: typography.small,
-    fontWeight: '700',
-  },
-  counter: {
-    color: colors.text,
-    fontSize: typography.small,
-    fontWeight: '900',
   },
 });

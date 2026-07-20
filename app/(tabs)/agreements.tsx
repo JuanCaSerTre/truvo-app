@@ -1,243 +1,231 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { AgreementCard } from '@/components/AgreementCard';
+import { FilterChip } from '@/components/agreements/FilterChip';
+import { FinancialSummaryCard } from '@/components/agreements/FinancialSummaryCard';
+import { RecentActivityCard, ActivityItem } from '@/components/agreements/RecentActivityCard';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { ScreenContainer } from '@/components/ScreenContainer';
-import { colors, radii, spacing, typography } from '@/constants/theme';
+import { colors, spacing, typography } from '@/constants/theme';
 import { useTruvoStore } from '@/hooks/useTruvoStore';
+import { Agreement } from '@/types/models';
+import { getAgreementHealth } from '@/utils/agreementHealth';
 import { getRemainingBalance } from '@/utils/agreementRules';
-import { formatMoney } from '@/utils/money';
+import { formatMoneyPrecise } from '@/utils/money';
+import { getRelativeTime } from '@/utils/notifications';
 
-type Filter = 'All' | 'Receiving' | 'Paying' | 'Pending' | 'Completed' | 'Active';
+type Filter = 'All' | 'Receiving' | 'Paying' | 'Active' | 'Pending' | 'Completed';
 
-const filters: { value: Filter; icon: keyof typeof Ionicons.glyphMap; color: string }[] = [
-  { value: 'All', icon: 'albums-outline', color: colors.textMuted },
+const filterMeta: { value: Filter; icon: keyof typeof Ionicons.glyphMap; color: string }[] = [
+  { value: 'All', icon: 'albums-outline', color: colors.primary },
   { value: 'Receiving', icon: 'arrow-down-circle-outline', color: colors.secondary },
   { value: 'Paying', icon: 'arrow-up-circle-outline', color: '#F59E0B' },
-  { value: 'Pending', icon: 'time-outline', color: colors.info },
-  { value: 'Completed', icon: 'checkmark-circle-outline', color: colors.secondary },
   { value: 'Active', icon: 'flash-outline', color: colors.info },
+  { value: 'Pending', icon: 'time-outline', color: '#B45309' },
+  { value: 'Completed', icon: 'checkmark-circle-outline', color: colors.secondary },
 ];
-
-const isOpenAgreement = (status: string) => status === 'pending' || status === 'active';
 
 export default function AgreementsScreen() {
   const [selected, setSelected] = useState<Filter>('All');
-  const { agreements, currentUser, payments, syncing, syncData } = useTruvoStore();
+  const { agreements, currentUser, payments, timelineEvents, syncing, syncData } = useTruvoStore();
   const currency = currentUser.currency || 'USD';
+  const money = (value: number) => formatMoneyPrecise(value, currency);
 
   useEffect(() => {
     void syncData();
   }, [syncData]);
 
+  const isBorrower = (agreement: Agreement) =>
+    agreement.borrowerId === currentUser.id || agreement.borrowerEmail?.toLowerCase() === currentUser.email?.toLowerCase();
+  const isLender = (agreement: Agreement) => agreement.lenderId === currentUser.id;
+
   const userAgreements = useMemo(
-    () =>
-      agreements.filter(
-        (agreement) =>
-          agreement.lenderId === currentUser.id ||
-          agreement.borrowerId === currentUser.id ||
-          agreement.borrowerEmail?.toLowerCase() === currentUser.email?.toLowerCase(),
-      ),
+    () => agreements.filter((agreement) => isLender(agreement) || isBorrower(agreement)),
     [agreements, currentUser.email, currentUser.id],
   );
 
+  const matchesFilter = (agreement: Agreement, filter: Filter) => {
+    switch (filter) {
+      case 'Receiving':
+        return isLender(agreement) && (agreement.status === 'pending' || agreement.status === 'active');
+      case 'Paying':
+        return isBorrower(agreement) && (agreement.status === 'pending' || agreement.status === 'active');
+      case 'Active':
+        return agreement.status === 'active';
+      case 'Pending':
+        return agreement.status === 'pending';
+      case 'Completed':
+        return agreement.status === 'completed';
+      default:
+        return true;
+    }
+  };
+
+  const counts = useMemo(() => {
+    const record = {} as Record<Filter, number>;
+    filterMeta.forEach(({ value }) => {
+      record[value] = userAgreements.filter((agreement) => matchesFilter(agreement, value)).length;
+    });
+    return record;
+  }, [userAgreements]);
+
   const metrics = useMemo(() => {
     const receive = userAgreements
-      .filter((agreement) => agreement.lenderId === currentUser.id)
+      .filter(isLender)
       .reduce((sum, agreement) => sum + getRemainingBalance(agreement, payments), 0);
     const pay = userAgreements
-      .filter(
-        (agreement) =>
-          agreement.borrowerId === currentUser.id ||
-          agreement.borrowerEmail?.toLowerCase() === currentUser.email?.toLowerCase(),
-      )
+      .filter(isBorrower)
       .reduce((sum, agreement) => sum + getRemainingBalance(agreement, payments), 0);
-    return { receive, pay, net: receive - pay };
+    const activeCount = userAgreements.filter((agreement) => agreement.status === 'active').length;
+    const attentionCount = userAgreements.filter((agreement) => {
+      const health = getAgreementHealth(agreement, payments).state;
+      return health === 'overdue' || health === 'awaiting' || health === 'due_soon';
+    }).length;
+    return { receive, pay, net: receive - pay, activeCount, attentionCount };
   }, [currentUser.email, currentUser.id, payments, userAgreements]);
 
-  const filtered = useMemo(() => {
-    return userAgreements.filter((agreement) => {
-      if (selected === 'Receiving') return agreement.lenderId === currentUser.id && isOpenAgreement(agreement.status);
-      if (selected === 'Paying') {
-        return (
-          agreement.borrowerId === currentUser.id ||
-          agreement.borrowerEmail?.toLowerCase() === currentUser.email?.toLowerCase()
-        );
-      }
-      if (selected === 'Pending') return agreement.status === 'pending';
-      if (selected === 'Completed') return agreement.status === 'completed';
-      if (selected === 'Active') return agreement.status === 'active';
-      return true;
-    });
-  }, [currentUser.email, currentUser.id, selected, userAgreements]);
+  const filtered = useMemo(
+    () => userAgreements.filter((agreement) => matchesFilter(agreement, selected)),
+    [selected, userAgreements],
+  );
 
-  const empty = getEmptyState(selected);
+  const activity = useMemo<ActivityItem[]>(() => {
+    const byId = new Map(userAgreements.map((agreement) => [agreement.id, agreement]));
+    return timelineEvents
+      .filter((event) => byId.has(event.agreementId))
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, 8)
+      .map((event) => {
+        const agreement = byId.get(event.agreementId);
+        const name = agreement
+          ? agreement.lenderId === currentUser.id
+            ? agreement.borrowerName || agreement.borrowerEmail || 'Borrower'
+            : 'Lender'
+          : 'Agreement';
+        const isDanger = event.type.includes('rejected') || event.type.includes('cancelled');
+        const isPayment = event.type.includes('payment');
+        const color = isDanger ? colors.danger : isPayment ? colors.secondary : colors.info;
+        const tint = isDanger ? '#FEE2E2' : isPayment ? '#D1FAE5' : '#DBEAFE';
+        const icon: keyof typeof Ionicons.glyphMap =
+          event.type === 'payment_confirmed'
+            ? 'checkmark-circle'
+            : event.type === 'payment_rejected'
+              ? 'close-circle'
+              : event.type === 'agreement_completed'
+                ? 'ribbon'
+                : event.type === 'agreement_accepted'
+                  ? 'shield-checkmark'
+                  : 'document-text';
+        return {
+          id: event.id,
+          icon,
+          color,
+          tint,
+          title: event.title,
+          time: getRelativeTime(event.createdAt),
+          agreementName: name,
+          onPress: () => router.push(`/agreement/${event.agreementId}`),
+        };
+      });
+  }, [currentUser.id, timelineEvents, userAgreements]);
 
   return (
     <ScreenContainer refreshing={syncing} onRefresh={syncData}>
       <View>
         <Text style={styles.title}>Agreements</Text>
-        <Text style={styles.copy}>Know what is coming in, going out, and waiting for action.</Text>
-        {syncing ? <Text style={styles.syncing}>Syncing Supabase data...</Text> : null}
+        <Text style={styles.copy}>Your control center for every financial relationship.</Text>
       </View>
 
-      <View style={styles.summaryGrid}>
-        <SummaryTile label="You will receive" value={formatMoney(metrics.receive, currency)} icon="arrow-down-circle-outline" tone="receive" />
-        <SummaryTile label="You owe" value={formatMoney(metrics.pay, currency)} icon="arrow-up-circle-outline" tone="pay" />
-        <SummaryTile label="Net position" value={`${metrics.net >= 0 ? '+' : ''}${formatMoney(metrics.net, currency)}`} icon="analytics-outline" tone="net" wide />
-      </View>
-
-      <View style={styles.filterRow}>
-        {filters.map((filter) => (
-          <FilterChip
-            key={filter.value}
-            label={filter.value}
-            icon={filter.icon}
-            color={filter.color}
-            selected={selected === filter.value}
-            onPress={() => setSelected(filter.value)}
-          />
-        ))}
-      </View>
-
-      {filtered.length === 0 ? (
-        <ContextualEmptyState
-          icon={empty.icon}
-          iconColor={empty.iconColor}
-          title={empty.title}
-          message={empty.message}
-          actionLabel={empty.actionLabel}
-          onAction={() => router.push('/create')}
-        />
+      {userAgreements.length === 0 ? (
+        <EmptyState onAction={() => router.push('/create')} />
       ) : (
-        <View style={styles.list}>
-          {filtered.map((agreement) => (
-            <AgreementCard
-              key={agreement.id}
-              agreement={agreement}
-              currentUser={currentUser}
-              payments={payments}
-              currency={currency}
-              onPress={() => router.push(`/agreement/${agreement.id}`)}
-            />
-          ))}
-        </View>
+        <>
+          <FinancialSummaryCard
+            receive={metrics.receive}
+            pay={metrics.pay}
+            net={metrics.net}
+            activeCount={metrics.activeCount}
+            attentionCount={metrics.attentionCount}
+            format={money}
+          />
+
+          {activity.length ? (
+            <View style={styles.activitySection}>
+              <Text style={styles.sectionTitle}>Recent Activity</Text>
+              <RecentActivityCard items={activity} />
+            </View>
+          ) : null}
+
+          <View style={styles.filterRow}>
+            {filterMeta.map((filter) => (
+              <FilterChip
+                key={filter.value}
+                label={filter.value}
+                count={counts[filter.value]}
+                icon={filter.icon}
+                color={filter.color}
+                selected={selected === filter.value}
+                onPress={() => setSelected(filter.value)}
+              />
+            ))}
+          </View>
+
+          {filtered.length === 0 ? (
+            <FilteredEmptyState filter={selected} onAction={() => router.push('/create')} />
+          ) : (
+            <View style={styles.list}>
+              {filtered.map((agreement, index) => (
+                <AgreementCard
+                  key={agreement.id}
+                  agreement={agreement}
+                  currentUser={currentUser}
+                  payments={payments}
+                  currency={currency}
+                  index={index}
+                  onPress={() => router.push(`/agreement/${agreement.id}`)}
+                />
+              ))}
+            </View>
+          )}
+        </>
       )}
     </ScreenContainer>
   );
 }
 
-function getEmptyState(filter: Filter): {
-  icon: keyof typeof Ionicons.glyphMap;
-  iconColor: string;
-  title: string;
-  message: string;
-  actionLabel: string;
-} {
-  if (filter === 'Receiving') {
-    return {
-      icon: 'arrow-down-circle-outline',
-      iconColor: colors.secondary,
-      title: 'No money owed to you yet.',
-      message: 'Create an agreement when someone needs to repay you.',
-      actionLabel: 'Create Agreement',
-    };
-  }
-  if (filter === 'Paying') {
-    return {
-      icon: 'wallet-outline',
-      iconColor: '#F59E0B',
-      title: "You don't owe anyone yet.",
-      message: 'Agreements where you are the borrower will appear here.',
-      actionLabel: 'Create Agreement',
-    };
-  }
-  return {
-    icon: filter === 'Pending' ? 'time-outline' : filter === 'Completed' ? 'checkmark-circle-outline' : 'document-text-outline',
-    iconColor: filter === 'Pending' ? colors.info : colors.textMuted,
-    title: 'No agreements found',
-    message: 'Try another filter or create a new agreement request.',
-    actionLabel: 'Create Agreement',
-  };
-}
-
-function SummaryTile({
-  label,
-  value,
-  icon,
-  tone,
-  wide,
-}: {
-  label: string;
-  value: string;
-  icon: keyof typeof Ionicons.glyphMap;
-  tone: 'receive' | 'pay' | 'net';
-  wide?: boolean;
-}) {
-  const toneStyle = tone === 'receive' ? styles.receiveSummary : tone === 'pay' ? styles.paySummary : styles.netSummary;
-  const iconColor = tone === 'receive' ? colors.secondary : tone === 'pay' ? '#F59E0B' : '#FFFFFF';
+function EmptyState({ onAction }: { onAction: () => void }) {
   return (
-    <View style={[styles.summaryTile, toneStyle, wide && styles.summaryTileWide]}>
-      <View style={styles.summaryTop}>
-        <Text style={[styles.summaryLabel, tone === 'net' && styles.netSummaryText]}>{label}</Text>
-        <Ionicons name={icon} size={22} color={iconColor} />
+    <View style={styles.empty}>
+      <View style={styles.emptyIllustration}>
+        <View style={styles.emptyDoc}>
+          <View style={styles.emptyLine} />
+          <View style={styles.emptyLineShort} />
+          <View style={styles.emptyAmount} />
+        </View>
+        <View style={styles.emptyBadge}>
+          <Ionicons name="add" size={22} color="#FFFFFF" />
+        </View>
       </View>
-      <Text style={[styles.summaryValue, tone === 'net' && styles.netSummaryText]}>{value}</Text>
+      <Text style={styles.emptyTitle}>No agreements yet.</Text>
+      <Text style={styles.emptyMessage}>Create your first agreement and start tracking repayments with complete transparency.</Text>
+      <PrimaryButton label="Create Agreement" onPress={onAction} />
     </View>
   );
 }
 
-function FilterChip({
-  label,
-  icon,
-  color,
-  selected,
-  onPress,
-}: {
-  label: string;
-  icon: keyof typeof Ionicons.glyphMap;
-  color: string;
-  selected: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityState={{ selected }}
-      style={[styles.filterChip, selected && { backgroundColor: `${color}18`, borderColor: color }]}
-    >
-      <Ionicons name={icon} size={16} color={selected ? color : colors.textMuted} />
-      <Text style={[styles.filterText, selected && { color }]}>{label}</Text>
-    </Pressable>
-  );
-}
-
-function ContextualEmptyState({
-  icon,
-  iconColor,
-  title,
-  message,
-  actionLabel,
-  onAction,
-}: {
-  icon: keyof typeof Ionicons.glyphMap;
-  iconColor: string;
-  title: string;
-  message: string;
-  actionLabel: string;
-  onAction: () => void;
-}) {
+function FilteredEmptyState({ filter, onAction }: { filter: Filter; onAction: () => void }) {
+  const icon: keyof typeof Ionicons.glyphMap =
+    filter === 'Receiving' ? 'arrow-down-circle-outline' : filter === 'Paying' ? 'wallet-outline' : filter === 'Completed' ? 'checkmark-circle-outline' : 'time-outline';
   return (
     <View style={styles.empty}>
-      <View style={[styles.emptyIcon, { backgroundColor: `${iconColor}18` }]}>
-        <Ionicons name={icon} size={42} color={iconColor} />
+      <View style={styles.emptyIcon}>
+        <Ionicons name={icon} size={38} color={colors.textMuted} />
       </View>
-      <Text style={styles.emptyTitle}>{title}</Text>
-      <Text style={styles.emptyMessage}>{message}</Text>
-      <PrimaryButton label={actionLabel} onPress={onAction} />
+      <Text style={styles.emptyTitle}>Nothing here yet</Text>
+      <Text style={styles.emptyMessage}>No agreements match the “{filter}” filter. Try another filter or create a new agreement.</Text>
+      <PrimaryButton label="Create Agreement" onPress={onAction} />
     </View>
   );
 }
@@ -254,87 +242,18 @@ const styles = StyleSheet.create({
     lineHeight: 24,
     marginTop: spacing.xs,
   },
-  syncing: {
-    color: colors.info,
-    fontSize: typography.small,
-    fontWeight: '800',
-    marginTop: spacing.sm,
-  },
-  summaryGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.md,
-  },
-  summaryTile: {
-    width: '47%',
-    minHeight: 118,
-    padding: spacing.lg,
-    borderRadius: 22,
-    gap: spacing.md,
-    borderWidth: 1,
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.06,
-    shadowRadius: 16,
-    elevation: 2,
-  },
-  summaryTileWide: {
-    width: '100%',
-  },
-  receiveSummary: {
-    backgroundColor: '#ECFDF5',
-    borderColor: '#A7F3D0',
-  },
-  paySummary: {
-    backgroundColor: '#FFFBEB',
-    borderColor: '#FDE68A',
-  },
-  netSummary: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  summaryTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+  activitySection: {
     gap: spacing.sm,
   },
-  summaryLabel: {
-    color: colors.textMuted,
-    fontSize: typography.caption,
-    fontWeight: '900',
-    textTransform: 'uppercase',
-    flex: 1,
-  },
-  summaryValue: {
+  sectionTitle: {
     color: colors.text,
-    fontSize: 28,
+    fontSize: typography.h3,
     fontWeight: '900',
-  },
-  netSummaryText: {
-    color: '#FFFFFF',
   },
   filterRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: spacing.sm,
-  },
-  filterChip: {
-    minHeight: 40,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: radii.pill,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  filterText: {
-    color: colors.textMuted,
-    fontSize: typography.small,
-    fontWeight: '900',
   },
   list: {
     gap: spacing.lg,
@@ -345,10 +264,57 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xxl,
     gap: spacing.md,
   },
+  emptyIllustration: {
+    width: 130,
+    height: 130,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyDoc: {
+    width: 92,
+    height: 112,
+    borderRadius: 22,
+    padding: spacing.md,
+    gap: spacing.sm,
+    backgroundColor: colors.surface,
+    borderWidth: 2,
+    borderColor: colors.border,
+  },
+  emptyLine: {
+    height: 9,
+    borderRadius: 999,
+    backgroundColor: '#CBD5E1',
+  },
+  emptyLineShort: {
+    width: '70%',
+    height: 9,
+    borderRadius: 999,
+    backgroundColor: '#E2E8F0',
+  },
+  emptyAmount: {
+    width: 48,
+    height: 22,
+    borderRadius: 999,
+    backgroundColor: '#D1FAE5',
+  },
+  emptyBadge: {
+    position: 'absolute',
+    right: 10,
+    bottom: 8,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.secondary,
+    borderWidth: 4,
+    borderColor: colors.background,
+  },
   emptyIcon: {
-    width: 86,
-    height: 86,
-    borderRadius: 43,
+    width: 82,
+    height: 82,
+    borderRadius: 41,
+    backgroundColor: colors.surfaceMuted,
     alignItems: 'center',
     justifyContent: 'center',
   },

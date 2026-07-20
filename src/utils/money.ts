@@ -5,6 +5,20 @@ export const formatMoney = (amount: number, currency = 'USD') =>
     maximumFractionDigits: amount % 1 === 0 ? 0 : 2,
   }).format(amount);
 
+/**
+ * Currency with fixed two-decimal places, e.g. A$146,026.00 / A$7,035.00.
+ * Uses en-AU narrow symbols so AUD renders as "A$" rather than "$". Preferred on
+ * cards/summaries where amounts must read consistently and never wrap.
+ */
+export const formatMoneyPrecise = (amount: number, currency = 'USD') =>
+  new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency,
+    currencyDisplay: 'symbol',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amount);
+
 const parseDateOnly = (value: string) => {
   const match = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (!match) return new Date(value);
