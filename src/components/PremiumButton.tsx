@@ -1,5 +1,5 @@
 import React from 'react';
-import { Pressable, StyleSheet, Text, ViewStyle } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { colors, radii, spacing, typography } from '@/constants/theme';
@@ -10,11 +10,12 @@ interface Props {
   label: string;
   onPress: () => void;
   icon?: keyof typeof Ionicons.glyphMap;
+  loading?: boolean;
   style?: ViewStyle;
 }
 
 /** Large, full-width, rounded CTA with soft shadow and a slight press-scale animation. */
-export function PremiumButton({ label, onPress, icon = 'mail-outline', style }: Props) {
+export function PremiumButton({ label, onPress, icon = 'mail-outline', loading, style }: Props) {
   const scale = useSharedValue(1);
   const animatedStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
 
@@ -22,6 +23,8 @@ export function PremiumButton({ label, onPress, icon = 'mail-outline', style }: 
     <AnimatedPressable
       accessibilityRole="button"
       accessibilityLabel={label}
+      accessibilityState={{ busy: loading }}
+      disabled={loading}
       onPress={onPress}
       onPressIn={() => {
         scale.value = withTiming(0.97, { duration: 90 });
@@ -31,8 +34,14 @@ export function PremiumButton({ label, onPress, icon = 'mail-outline', style }: 
       }}
       style={[styles.button, animatedStyle, style]}
     >
-      <Ionicons name={icon} size={20} color="#FFFFFF" />
-      <Text style={styles.label}>{label}</Text>
+      {loading ? (
+        <ActivityIndicator color="#FFFFFF" />
+      ) : (
+        <>
+          <Ionicons name={icon} size={20} color="#FFFFFF" />
+          <Text style={styles.label}>{label}</Text>
+        </>
+      )}
     </AnimatedPressable>
   );
 }
