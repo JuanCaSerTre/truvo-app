@@ -189,6 +189,14 @@ export const authService = {
     if (error) throwApiServiceError(error, 'Could not resend signup confirmation.');
   },
 
+  async sendPasswordReset(email: string): Promise<void> {
+    const client = requireSupabase();
+    const { error } = await client.auth.resetPasswordForEmail(email, {
+      redirectTo: authRedirectUrl,
+    });
+    if (error) throwApiServiceError(error, 'Could not send password reset email.');
+  },
+
   // Called when the app is opened via the email confirmation deep link. Exchanges
   // the code/tokens in the URL for a session, then returns the confirmed profile.
   async completeSessionFromUrl(url: string): Promise<User | null> {
