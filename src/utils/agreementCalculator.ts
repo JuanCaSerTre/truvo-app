@@ -61,7 +61,14 @@ const addPeriods = (startDate: string, frequency: PaymentFrequency, periods: num
   const next = new Date(date);
   if (frequency === 'weekly') next.setDate(next.getDate() + periods * 7);
   if (frequency === 'biweekly') next.setDate(next.getDate() + periods * 14);
-  if (frequency === 'monthly') next.setMonth(next.getMonth() + periods);
+  if (frequency === 'monthly') {
+    // Clamp month-end dates rather than letting Date.setMonth roll into the next month.
+    const originalDay = date.getDate();
+    next.setDate(1);
+    next.setMonth(next.getMonth() + periods);
+    const lastDayOfTargetMonth = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
+    next.setDate(Math.min(originalDay, lastDayOfTargetMonth));
+  }
   return toDateOnly(next);
 };
 
